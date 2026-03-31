@@ -244,9 +244,9 @@ export default function CashAndExpenses() {
                       <th colSpan={2} className={thBase}>
                         Source / account
                       </th>
-                      <th className={thNum}>Opening balance</th>
-                      <th className={thNum}>Inflows</th>
-                      <th className={thNum}>Closing balance</th>
+                      <th className={thNum}>Previous</th>
+                      <th className={thNum}>Current</th>
+                      <th className={thNum}>Total payment</th>
                       <th className={thBase} aria-hidden />
                     </tr>
                     <tr>

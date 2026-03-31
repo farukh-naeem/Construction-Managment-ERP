@@ -17,6 +17,8 @@ export interface CashExpensesReportPayment {
   entityName: string;
   entityType: CashExpensesEntityType;
   amount: number;
+  previousAmount: number;
+  totalAmount: number;
   remarks: string;
   sourceId?: string;
 }

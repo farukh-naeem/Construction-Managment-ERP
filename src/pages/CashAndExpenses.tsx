@@ -40,6 +40,31 @@ const ENTITY_TYPE_LABELS: Record<CashExpensesEntityType, string> = {
   Machinery: "Machinery",
 };
 
+const CASH_REPORT_PRINT_CSS = `
+  .cash-print-project-name {
+    display: block !important;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0 0 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #000;
+  }
+  .cash-expenses-sheet { font-size: 11px; }
+  .cash-expenses-sheet table { margin-top: 0 !important; margin-bottom: 0 !important; }
+  .cash-expenses-sheet .cash-section td {
+    background: #e8e8e8 !important;
+    font-weight: bold;
+    padding: 10px 8px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .cash-expenses-sheet tbody tr.cash-section td { border-top: 2px solid #000; }
+  .cash-expenses-sheet tbody tr:first-child td { border-top: 1px solid #000; }
+`;
+
 export default function CashAndExpenses() {
   const { user } = useAuth();
   const { projects } = useProjects();
@@ -50,7 +75,7 @@ export default function CashAndExpenses() {
   const effectiveProjectId = isSiteManager ? assignedProjectId : (selectedProjectId || null);
   const [reportDate, setReportDate] = useState(toTodayISO);
 
-  const { report, loading, error, refetch } = useCashExpensesReport(
+  const { report, loading, error } = useCashExpensesReport(
     effectiveProjectId ?? undefined,
     reportDate
   );
@@ -101,12 +126,22 @@ export default function CashAndExpenses() {
 
   const closingBalance = report?.closingBalance ?? totalClosing;
 
+  const thBase =
+    "border border-border/60 bg-muted/20 px-3 py-2.5 text-left text-xs font-medium text-muted-foreground print:bg-neutral-200 print:text-black";
+  const thNum = `${thBase} text-right`;
+  const tdBase = "border border-border/60 px-3 py-2.5 text-sm";
+  const tdNum = `${tdBase} text-right font-mono text-sm`;
+
   return (
     <Layout>
       <PageHeader
         title="Cash & Expenses"
         subtitle={subtitle}
         printTargetId="cash-expenses-report"
+        printOptions={{
+          printDocumentTitle: `Cash & Expenses — ${selectedProjectName} — ${reportDate}`,
+          additionalPrintCss: CASH_REPORT_PRINT_CSS,
+        }}
       />
 
       <div className="space-y-6">
@@ -190,215 +225,168 @@ export default function CashAndExpenses() {
             Select a project to view the cash & expenses report.
           </p>
         ) : (
-          <div id="cash-expenses-report">
-            {/* Balances */}
-            {report?.openingBalances && (
-              <div className="rounded-xl border border-border/60 bg-card overflow-hidden shadow-sm mb-6">
-                <div className="px-5 py-3 border-b border-border/40 bg-muted/10">
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                    Opening balances ({reportDate})
-                  </h2>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-base">
-                    <thead>
-                      <tr className="border-b border-border/40 bg-muted/10 text-muted-foreground">
-                        <th className="px-5 py-3 text-left text-sm font-medium">
-                          Source / Account
-                        </th>
-                        <th className="px-5 py-3 text-right text-sm font-medium">
-                          Opening balance
-                        </th>
-                        <th className="px-5 py-3 text-right text-sm font-medium">
-                          Inflows
-                        </th>
-                        <th className="px-5 py-3 text-right text-sm font-medium">
-                          Closing balance
-                        </th>
+          <div
+            id="cash-expenses-report"
+            className="cash-expenses-sheet rounded-xl border border-border/60 bg-card overflow-hidden shadow-sm"
+          >
+            {/* `hidden`: hidden on screen (Tailwind). Print popup has no Tailwind — line shows via .cash-print-project-name in print CSS. */}
+            <div className="cash-print-project-name hidden">{selectedProjectName}</div>
+            <table className="w-full border-collapse text-base">
+              <tbody>
+                {report?.openingBalances ? (
+                  <>
+                    <tr className="cash-section">
+                      <td colSpan={6} className={tdBase}>
+                        Opening balances ({reportDate})
+                      </td>
+                    </tr>
+                    <tr>
+                      <th colSpan={2} className={thBase}>
+                        Source / account
+                      </th>
+                      <th className={thNum}>Opening balance</th>
+                      <th className={thNum}>Inflows</th>
+                      <th className={thNum}>Closing balance</th>
+                      <th className={thBase} aria-hidden />
+                    </tr>
+                    <tr>
+                      <td colSpan={2} className={`${tdBase} text-muted-foreground`}>
+                        Project ledger
+                      </td>
+                      <td className={tdNum}>
+                        {formatCurrency(report.openingBalances.projectLedger ?? 0)}
+                      </td>
+                      <td className={tdNum}>
+                        {formatCurrency(report.openingBalances.projectLedgerInflows ?? 0)}
+                      </td>
+                      <td className={tdNum}>
+                        {formatCurrency(report.openingBalances.projectLedgerClosing ?? 0)}
+                      </td>
+                      <td className={tdBase} />
+                    </tr>
+                    {(report.openingBalances.bankAccounts ?? []).map((acc) => (
+                      <tr key={acc.id}>
+                        <td colSpan={2} className={`${tdBase} text-muted-foreground`}>
+                          {acc.name}
+                        </td>
+                        <td className={tdNum}>{formatCurrency(acc.openingBalance ?? 0)}</td>
+                        <td className={tdNum}>{formatCurrency(acc.inflows ?? 0)}</td>
+                        <td className={tdNum}>{formatCurrency(acc.closingBalance ?? 0)}</td>
+                        <td className={tdBase} />
                       </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-b border-border/40">
-                        <td className="px-5 py-3.5 text-sm text-muted-foreground">
-                          Project ledger
-                        </td>
-                        <td className="px-5 py-3.5 text-right font-mono text-sm font-medium">
-                          {formatCurrency(
-                            report.openingBalances.projectLedger ?? 0
-                          )}
-                        </td>
-                        <td className="px-5 py-3.5 text-right font-mono text-sm font-medium">
-                          {formatCurrency(
-                            report.openingBalances.projectLedgerInflows ?? 0
-                          )}
-                        </td>
-                        <td className="px-5 py-3.5 text-right font-mono text-sm font-medium">
-                          {formatCurrency(
-                            report.openingBalances.projectLedgerClosing ?? 0
-                          )}
-                        </td>
-                      </tr>
-                      {(report.openingBalances.bankAccounts ?? []).map((acc) => (
-                        <tr
-                          key={acc.id}
-                          className="border-b border-border/40"
-                        >
-                          <td className="px-5 py-3.5 text-sm text-muted-foreground">
-                            {acc.name}
-                          </td>
-                          <td className="px-5 py-3.5 text-right font-mono text-sm font-medium">
-                            {formatCurrency(acc.openingBalance ?? 0)}
-                          </td>
-                          <td className="px-5 py-3.5 text-right font-mono text-sm font-medium">
-                            {formatCurrency(acc.inflows ?? 0)}
-                          </td>
-                          <td className="px-5 py-3.5 text-right font-mono text-sm font-medium">
-                            {formatCurrency(acc.closingBalance ?? 0)}
-                          </td>
-                        </tr>
-                      ))}
-                      <tr className="border-t-2 border-border/60 font-medium">
-                        <td className="px-5 py-3.5 text-sm">Total</td>
-                        <td className="px-5 py-3.5 text-right font-mono text-sm">
-                          {formatCurrency(totalOpening)}
-                        </td>
-                        <td className="px-5 py-3.5 text-right font-mono text-sm">
-                          {formatCurrency(totalInflows)}
-                        </td>
-                        <td className="px-5 py-3.5 text-right font-mono text-sm">
-                          {formatCurrency(totalClosing)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+                    ))}
+                    <tr className="font-medium bg-muted/10">
+                      <td colSpan={2} className={tdBase}>
+                        Total
+                      </td>
+                      <td className={tdNum}>{formatCurrency(totalOpening)}</td>
+                      <td className={tdNum}>{formatCurrency(totalInflows)}</td>
+                      <td className={tdNum}>{formatCurrency(totalClosing)}</td>
+                      <td className={tdBase} />
+                    </tr>
+                  </>
+                ) : null}
 
-            {/* Payments table */}
-            <div className="rounded-xl border border-border/60 bg-card overflow-hidden shadow-sm">
-              <div className="px-5 py-3 border-b border-border/40 bg-muted/10">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                  Payments ({reportDate})
-                </h2>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-base">
-                  <thead>
-                    <tr className="border-b border-border/40 bg-muted/10 text-muted-foreground">
-                      <th className="px-5 py-3 text-left text-sm font-medium">
-                        Entity name
+                <tr className="cash-section">
+                  <td colSpan={6} className={tdBase}>
+                    Payments ({reportDate})
+                  </td>
+                </tr>
+                <tr>
+                  <th className={thBase}>Entity name</th>
+                  <th className={thBase}>Type</th>
+                  <th className={thNum}>Previous</th>
+                  <th className={thNum}>Current</th>
+                  <th className={thNum}>Total</th>
+                  <th className={thBase}>Remarks</th>
+                </tr>
+                {!report?.payments?.length ? (
+                  <tr>
+                    <td colSpan={6} className={`${tdBase} text-center text-muted-foreground py-8`}>
+                      No payments on this date
+                    </td>
+                  </tr>
+                ) : (
+                  report.payments.map((p, i) => (
+                    <tr
+                      key={p.sourceId ?? `${p.entityName}-${i}`}
+                      className="hover:bg-muted/30 transition-colors print:hover:bg-transparent"
+                    >
+                      <td className={`${tdBase} font-medium`}>{p.entityName}</td>
+                      <td className={`${tdBase} text-muted-foreground`}>
+                        {ENTITY_TYPE_LABELS[p.entityType] ?? p.entityType}
+                      </td>
+                      <td className={tdNum}>{formatCurrency(p.previousAmount)}</td>
+                      <td className={tdNum}>{formatCurrency(p.amount)}</td>
+                      <td className={tdNum}>{formatCurrency(p.totalAmount)}</td>
+                      <td
+                        className={`${tdBase} text-muted-foreground max-w-[200px] truncate`}
+                        title={p.remarks || undefined}
+                      >
+                        {p.remarks || "—"}
+                      </td>
+                    </tr>
+                  ))
+                )}
+                {report?.payments?.length ? (
+                  <tr className="bg-warning/20 font-bold print:bg-amber-100">
+                    <td colSpan={2} className={tdBase}>
+                      Total payments
+                    </td>
+                    <td className={`${tdNum} text-muted-foreground font-normal print:text-black`}>
+                      —
+                    </td>
+                    <td className={tdNum}>{formatCurrency(totalPayments)}</td>
+                    <td className={`${tdNum} text-muted-foreground font-normal print:text-black`}>
+                      —
+                    </td>
+                    <td className={tdBase} />
+                  </tr>
+                ) : null}
+
+                {report?.openingBalances ? (
+                  <>
+                    <tr className="cash-section">
+                      <td colSpan={6} className={tdBase}>
+                        Summary ({reportDate})
+                      </td>
+                    </tr>
+                    <tr>
+                      <th colSpan={4} className={thBase}>
+                        Item
                       </th>
-                      <th className="px-5 py-3 text-left text-sm font-medium">
-                        Type
-                      </th>
-                      <th className="px-5 py-3 text-right text-sm font-medium">
+                      <th colSpan={2} className={thNum}>
                         Amount
                       </th>
-                      <th className="px-5 py-3 text-left text-sm font-medium">
-                        Remarks
-                      </th>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {!report?.payments?.length ? (
-                      <tr>
-                        <td
-                          colSpan={4}
-                          className="px-5 py-8 text-center text-muted-foreground"
-                        >
-                          No payments on this date
-                        </td>
-                      </tr>
-                    ) : (
-                      report.payments.map((p, i) => (
-                        <tr
-                          key={p.sourceId ?? `${p.entityName}-${i}`}
-                          className="border-b border-border/40 hover:bg-muted/30 transition-colors"
-                        >
-                          <td className="px-5 py-3.5 text-sm font-medium">
-                            {p.entityName}
-                          </td>
-                          <td className="px-5 py-3.5 text-sm text-muted-foreground">
-                            {ENTITY_TYPE_LABELS[p.entityType] ?? p.entityType}
-                          </td>
-                          <td className="px-5 py-3.5 text-right font-mono text-sm">
-                            {formatCurrency(p.amount)}
-                          </td>
-                          <td className="px-5 py-3.5 text-sm text-muted-foreground max-w-xs truncate" title={p.remarks || undefined}>
-                            {p.remarks || "—"}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                  {report?.payments?.length ? (
-                    <tfoot>
-                      <tr className="border-t-2 border-border/60 bg-warning/20 font-bold">
-                        <td className="px-5 py-3.5 text-sm" colSpan={2}>
-                          Total payments
-                        </td>
-                        <td className="px-5 py-3.5 text-right font-mono text-sm">
-                          {formatCurrency(totalPayments)}
-                        </td>
-                        <td className="px-5 py-3.5" />
-                      </tr>
-                    </tfoot>
-                  ) : null}
-                </table>
-              </div>
-            </div>
-
-            {/* Summary: Total payments & Closing balance (tabulated) */}
-            {report?.openingBalances && (
-              <div className="rounded-xl border border-border/60 bg-card overflow-hidden shadow-sm mt-6">
-                <div className="px-5 py-3 border-b border-border/40 bg-muted/10">
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                    Summary ({reportDate})
-                  </h2>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-base">
-                    <thead>
-                      <tr className="border-b border-border/40 bg-muted/10 text-muted-foreground">
-                        <th className="px-5 py-3 text-left text-sm font-medium">
-                          Item
-                        </th>
-                        <th className="px-5 py-3 text-right text-sm font-medium">
-                          Amount
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-b border-border/40">
-                        <td className="px-5 py-3.5 text-sm text-muted-foreground">
-                          Total opening
-                        </td>
-                        <td className="px-5 py-3.5 text-right font-mono text-sm font-medium">
-                          {formatCurrency(totalOpening)}
-                        </td>
-                      </tr>
-                      <tr className="border-b border-border/40 bg-warning/20 font-bold">
-                        <td className="px-5 py-3.5 text-sm">
-                          Total payments
-                        </td>
-                        <td className="px-5 py-3.5 text-right font-mono text-sm">
-                          {formatCurrency(totalPayments)}
-                        </td>
-                      </tr>
-                      <tr className="border-t-2 border-border/60 font-semibold">
-                        <td className="px-5 py-3.5 text-sm">
-                          Day closing balance
-                        </td>
-                        <td className="px-5 py-3.5 text-right font-mono text-sm">
-                          {formatCurrency(closingBalance)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+                    <tr>
+                      <td colSpan={4} className={`${tdBase} text-muted-foreground`}>
+                        Total opening
+                      </td>
+                      <td colSpan={2} className={tdNum}>
+                        {formatCurrency(totalOpening)}
+                      </td>
+                    </tr>
+                    <tr className="bg-warning/20 font-bold print:bg-amber-100">
+                      <td colSpan={4} className={tdBase}>
+                        Total payments
+                      </td>
+                      <td colSpan={2} className={tdNum}>
+                        {formatCurrency(totalPayments)}
+                      </td>
+                    </tr>
+                    <tr className="border-t-2 border-border/60 font-semibold">
+                      <td colSpan={4} className={tdBase}>
+                        Day closing balance
+                      </td>
+                      <td colSpan={2} className={tdNum}>
+                        {formatCurrency(closingBalance)}
+                      </td>
+                    </tr>
+                  </>
+                ) : null}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

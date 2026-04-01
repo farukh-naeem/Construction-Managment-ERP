@@ -236,9 +236,10 @@ export async function getEmployeeSnapshotForMonth(
   }
   if (firstMonth && month < firstMonth) return undefined;
 
-  const [payable, paid, attendance, lastNonAdvance] = await Promise.all([
+  const [payable, paid, advancePaid, attendance, lastNonAdvance] = await Promise.all([
     computePayableForMonth(employeeId, month),
     getMonthPaid(employeeId, month),
+    getMonthAdvancePaid(employeeId, month),
     getAttendanceSummaryForMonth(employeeId, month),
     EmployeePayment.findOne(
       { employeeId: new mongoose.Types.ObjectId(employeeId), month, type: { $ne: "Advance" } }
@@ -254,6 +255,7 @@ export async function getEmployeeSnapshotForMonth(
     payable,
     paid,
     remaining,
+    advancePaid,
     paymentStatus: paymentStatus(payable, paid, remaining, settlementDate, monthEnd),
     ...(attendance && { attendance }),
   };
@@ -319,6 +321,21 @@ export async function getEmployeeTotals(employeeId: string): Promise<{ totalPaid
 export async function getMonthPaid(employeeId: string, month: string): Promise<number> {
   const result = await EmployeePayment.aggregate([
     { $match: { employeeId: new mongoose.Types.ObjectId(employeeId), month } },
+    { $group: { _id: null, total: { $sum: "$amount" } } },
+  ]);
+  return result[0]?.total ?? 0;
+}
+
+/** Sum of Advance-type payments for this employee and month (salary sheet / net payable). */
+export async function getMonthAdvancePaid(employeeId: string, month: string): Promise<number> {
+  const result = await EmployeePayment.aggregate([
+    {
+      $match: {
+        employeeId: new mongoose.Types.ObjectId(employeeId),
+        month,
+        type: "Advance",
+      },
+    },
     { $group: { _id: null, total: { $sum: "$amount" } } },
   ]);
   return result[0]?.total ?? 0;
@@ -429,6 +446,8 @@ export interface MonthlySnapshot {
   payable: number;
   paid: number;
   remaining: number;
+  /** Sum of Advance payments recorded for this month (for salary sheet net). */
+  advancePaid: number;
   paymentStatus: "Paid" | "Partial" | "Due" | "Late";
   attendance?: AttendanceSnapshot;
 }
@@ -632,6 +651,7 @@ export async function getEmployeeLedger(
   if (month) {
     const payable = await computePayableForMonth(employeeId, month);
     const paid = await getMonthPaid(employeeId, month);
+    const advancePaid = await getMonthAdvancePaid(employeeId, month);
     const remaining = Math.max(0, payable - paid);
     const monthEnd = monthEndDate(month);
     const lastNonAdvance = await EmployeePayment.findOne(
@@ -645,6 +665,7 @@ export async function getEmployeeLedger(
       payable,
       paid,
       remaining,
+      advancePaid,
       paymentStatus: paymentStatus(payable, paid, remaining, settlementDate, monthEnd),
     };
   }
@@ -662,12 +683,14 @@ export async function getEmployeeLedgerSnapshot(
     return { snapshot: null };
   }
   await ensureEmployeeAccess(actor, employeeId);
-  const payable = await computePayableForMonth(employeeId, month.trim());
-  const paid = await getMonthPaid(employeeId, month.trim());
+  const m = month.trim();
+  const payable = await computePayableForMonth(employeeId, m);
+  const paid = await getMonthPaid(employeeId, m);
+  const advancePaid = await getMonthAdvancePaid(employeeId, m);
   const remaining = Math.max(0, payable - paid);
-  const monthEnd = monthEndDate(month.trim());
+  const monthEnd = monthEndDate(m);
   const lastNonAdvance = await EmployeePayment.findOne(
-    { employeeId: new mongoose.Types.ObjectId(employeeId), month: month.trim(), type: { $ne: "Advance" } }
+    { employeeId: new mongoose.Types.ObjectId(employeeId), month: m, type: { $ne: "Advance" } }
   )
     .sort({ date: -1 })
     .select("date")
@@ -677,6 +700,7 @@ export async function getEmployeeLedgerSnapshot(
     payable,
     paid,
     remaining,
+    advancePaid,
     paymentStatus: paymentStatus(payable, paid, remaining, settlementDate, monthEnd),
   };
   return { snapshot };

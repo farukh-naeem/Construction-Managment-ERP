@@ -1,6 +1,7 @@
 import { Response } from "express";
 import {
   listMachines,
+  listMachinesRunningBill,
   getMachineById,
   createMachine,
   updateMachine,
@@ -24,6 +25,29 @@ export async function list(req: AuthRequest, res: Response) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to list machines";
     res.status(500).json({ error: message });
+  }
+}
+
+export async function runningBillList(req: AuthRequest, res: Response) {
+  try {
+    const actor = req.user!;
+    const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+    const periodStart = typeof req.query.periodStart === "string" ? req.query.periodStart : "";
+    const periodEnd = typeof req.query.periodEnd === "string" ? req.query.periodEnd : "";
+    const page = req.query.page !== undefined ? Number(req.query.page) : undefined;
+    const pageSize = req.query.pageSize !== undefined ? Number(req.query.pageSize) : undefined;
+    const result = await listMachinesRunningBill(
+      { userId: actor.userId, role: actor.role },
+      { projectId, periodStart, periodEnd, page, pageSize }
+    );
+    res.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to load machinery running bill";
+    const status =
+      message.includes("period") || message.includes("YYYY-MM-DD") || message.includes("before periodEnd")
+        ? 400
+        : 500;
+    res.status(status).json({ error: message });
   }
 }
 

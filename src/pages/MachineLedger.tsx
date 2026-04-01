@@ -241,7 +241,7 @@ export default function MachineLedger() {
                 <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Remaining</th>
                 <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Remarks</th>
                 {canDeleteEntry && (
-                  <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Actions</th>
+                  <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider print-hidden">Actions</th>
                 )}
               </tr>
             </thead>
@@ -276,7 +276,7 @@ export default function MachineLedger() {
                       <td className="px-4 py-3 text-right font-mono text-sm text-destructive">{row.remaining > 0 ? formatCurrency(row.remaining) : "—"}</td>
                       <td className="px-4 py-3 text-sm text-muted-foreground">{row.remarks || "—"}</td>
                       {canDeleteEntry && (
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right print-hidden">
                           <Button
                             variant="ghost"
                             size="icon"
@@ -299,7 +299,7 @@ export default function MachineLedger() {
                       <td className="px-4 py-3 text-right font-mono text-sm">—</td>
                       <td className="px-4 py-3 text-sm text-muted-foreground">{row.referenceId || "—"}</td>
                       {canDeleteEntry && (
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right print-hidden">
                           <Button
                             variant="ghost"
                             size="icon"

@@ -113,6 +113,9 @@ export default function Expenses() {
       : effectiveProjectId
         ? `Project-level expense tracking — ${projects.find((p) => p.id === effectiveProjectId)?.name ?? "Project"}`
         : "Project-level expense tracking — Select project";
+  const selectedProjectName = isSiteManager
+    ? (assignedProjectName ?? "Project")
+    : (projects.find((p) => p.id === effectiveProjectId)?.name ?? "Project");
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const startIndexOneBased = total === 0 ? 0 : (page - 1) * pageSize + 1;
@@ -134,6 +137,7 @@ export default function Expenses() {
       <PageHeader
         title="Expenses"
         subtitle={subtitle}
+        printProjectName={selectedProjectName}
         printTargetId="expenses-table"
         actions={
           <Button
@@ -249,7 +253,7 @@ export default function Expenses() {
                   <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Category</th>
                   <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Mode</th>
                   <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Amount</th>
-                  {canEditDelete && <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Actions</th>}
+                  {canEditDelete && <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider print-hidden">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -274,7 +278,7 @@ export default function Expenses() {
                       <td className="px-4 py-3 text-sm">{exp.paymentMode}</td>
                       <td className="px-4 py-3 text-right font-mono text-sm font-bold">{formatCurrency(exp.amount)}</td>
                       {canEditDelete && (
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right print-hidden">
                           <div className="flex justify-end gap-1">
                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditExpense(exp); setEditOpen(true); }} title="Edit">
                               <Pencil className="h-3.5 w-3.5" />

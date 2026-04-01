@@ -6,14 +6,22 @@ export async function getReport(req: AuthRequest, res: Response) {
   try {
     const actor = req.user!;
     const { projectId } = req.params;
-    const date = typeof req.query.date === "string" ? req.query.date.trim() : "";
+    const startDate =
+      typeof req.query.startDate === "string" ? req.query.startDate.trim() : "";
+    const endDate = typeof req.query.endDate === "string" ? req.query.endDate.trim() : "";
+    const today = new Date().toISOString().slice(0, 10);
 
-    if (!date) {
-      res.status(400).json({ error: "Query parameter date is required (YYYY-MM-DD)" });
+    const effectiveStart = startDate || today;
+    const effectiveEnd = endDate || today;
+
+    if (effectiveStart > effectiveEnd) {
+      res
+        .status(400)
+        .json({ error: "Invalid date range: startDate must be less than or equal to endDate" });
       return;
     }
 
-    const result = await getCashExpensesReport(actor, projectId, date);
+    const result = await getCashExpensesReport(actor, projectId, effectiveStart, effectiveEnd);
     res.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to get cash & expenses report";

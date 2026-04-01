@@ -19,6 +19,8 @@ export interface ApiMonthlySnapshot {
   payable: number;
   paid: number;
   remaining: number;
+  /** Sum of Advance payments for the month; omit on older API responses */
+  advancePaid?: number;
   paymentStatus: "Paid" | "Partial" | "Due" | "Late";
 }
 

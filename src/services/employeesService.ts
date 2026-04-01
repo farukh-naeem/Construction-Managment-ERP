@@ -61,6 +61,7 @@ export interface ApiEmployeeWithSnapshot extends ApiEmployee {
     payable: number;
     paid: number;
     remaining: number;
+    advancePaid?: number;
     paymentStatus: "Paid" | "Partial" | "Due" | "Late";
     attendance?: AttendanceSnapshot;
   };

@@ -127,6 +127,9 @@ export default function Contractors() {
     () => projects.filter((p) => p.status === "Active" || p.status === "On Hold" || p.status === "Completed"),
     [projects]
   );
+  const selectedProjectName = isSiteManager
+    ? (currentUser?.assignedProjectName ?? "Project")
+    : (projects.find((p) => p.id === selectedProjectId)?.name ?? "Project");
   const selectedContractor = selectedContractorId !== ALL_CONTRACTORS
     ? contractors.find((c) => c.id === selectedContractorId) ?? null
     : null;
@@ -253,7 +256,7 @@ export default function Contractors() {
                 <Banknote className="h-4 w-4 mr-1" /> Record Payment
               </Button>
             )}
-            <PrintExportButton title="Contractors" printTargetId="contractors-content" />
+            <PrintExportButton title="Contractors" printProjectName={selectedProjectName} printTargetId="contractors-content" />
           </div>
         }
       />

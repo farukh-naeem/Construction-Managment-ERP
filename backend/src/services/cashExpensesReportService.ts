@@ -28,7 +28,7 @@ export type CashExpensesEntityType =
 export interface CashExpensesReportPayment {
   entityName: string;
   entityType: CashExpensesEntityType;
-  /** Amount paid on the report date (this line). */
+  /** Amount paid in the selected period (this line). */
   amount: number;
   /** Running balance before this line: all prior days + earlier lines same entity on this day. */
   previousAmount: number;
@@ -50,7 +50,22 @@ export interface CashExpensesReportOpeningBalances {
   projectLedger: number;
   projectLedgerClosing: number;
   projectLedgerInflows: number;
-  bankAccounts: CashExpensesReportBankAccount[];
+  openingRow: {
+    current: number;
+    previous: number;
+    total: number;
+    tPayment: number;
+  };
+  inflowTransactions: {
+    id: string;
+    date: string;
+    source: string;
+    remarks: string;
+    current: number;
+    previous: number;
+    total: number;
+    tPayment: number;
+  }[];
 }
 
 export interface CashExpensesReport {
@@ -98,7 +113,7 @@ function populatedIdName(ref: unknown): { id: string; name?: string } {
 
 async function fetchPriorPaymentTotals(
   projectObj: mongoose.Types.ObjectId,
-  date: string,
+  startDate: string,
   buckets: {
     consumableItemIds: mongoose.Types.ObjectId[];
     vendorIds: mongoose.Types.ObjectId[];
@@ -135,7 +150,7 @@ async function fetchPriorPaymentTotals(
             $match: {
               projectId: projectObj,
               itemId: { $in: consumableItemIds },
-              date: { $lt: date },
+              date: { $lt: startDate },
               paidAmount: { $gt: 0 },
             },
           },
@@ -152,7 +167,7 @@ async function fetchPriorPaymentTotals(
     jobs.push(
       (async () => {
         const rows = await VendorPayment.aggregate<{ _id: mongoose.Types.ObjectId; sum: number }>([
-          { $match: { vendorId: { $in: vendorIds }, date: { $lt: date } } },
+          { $match: { vendorId: { $in: vendorIds }, date: { $lt: startDate } } },
           { $lookup: { from: vendorsColl, localField: "vendorId", foreignField: "_id", as: "v" } },
           { $unwind: "$v" },
           { $match: { "v.projectId": projectObj } },
@@ -169,7 +184,7 @@ async function fetchPriorPaymentTotals(
     jobs.push(
       (async () => {
         const rows = await ContractorPayment.aggregate<{ _id: mongoose.Types.ObjectId; sum: number }>([
-          { $match: { contractorId: { $in: contractorIds }, date: { $lt: date } } },
+          { $match: { contractorId: { $in: contractorIds }, date: { $lt: startDate } } },
           { $lookup: { from: contractorsColl, localField: "contractorId", foreignField: "_id", as: "c" } },
           { $unwind: "$c" },
           { $match: { "c.projectId": projectObj } },
@@ -186,7 +201,7 @@ async function fetchPriorPaymentTotals(
     jobs.push(
       (async () => {
         const rows = await EmployeePayment.aggregate<{ _id: mongoose.Types.ObjectId; sum: number }>([
-          { $match: { employeeId: { $in: employeeIds }, date: { $lt: date } } },
+          { $match: { employeeId: { $in: employeeIds }, date: { $lt: startDate } } },
           { $lookup: { from: employeesColl, localField: "employeeId", foreignField: "_id", as: "e" } },
           { $unwind: "$e" },
           { $match: { "e.projectId": projectObj } },
@@ -206,7 +221,7 @@ async function fetchPriorPaymentTotals(
           {
             $match: {
               projectId: projectObj,
-              date: { $lt: date },
+              date: { $lt: startDate },
               category: { $in: expenseCategories },
             },
           },
@@ -223,7 +238,7 @@ async function fetchPriorPaymentTotals(
     jobs.push(
       (async () => {
         const rows = await MachinePayment.aggregate<{ _id: mongoose.Types.ObjectId; sum: number }>([
-          { $match: { machineId: { $in: machineIds }, date: { $lt: date } } },
+          { $match: { machineId: { $in: machineIds }, date: { $lt: startDate } } },
           { $lookup: { from: machinesColl, localField: "machineId", foreignField: "_id", as: "m" } },
           { $unwind: "$m" },
           { $match: { "m.projectId": projectObj } },
@@ -242,7 +257,7 @@ async function fetchPriorPaymentTotals(
         const rows = await NonConsumableLedgerEntry.aggregate<{ _id: mongoose.Types.ObjectId; sum: number }>([
           {
             $match: {
-              date: { $lt: date },
+              date: { $lt: startDate },
               eventType: "Purchase",
               totalCost: { $gt: 0 },
               itemId: { $in: nonConsumableItemIds },
@@ -292,10 +307,101 @@ function applyRunningPreviousAndTotal(
   return result;
 }
 
+async function fetchProjectAllTimePaymentsToDate(
+  projectObj: mongoose.Types.ObjectId,
+  endDate: string
+): Promise<number> {
+  const [consumable, vendor, contractor, employee, expense, machine, nonConsumable] =
+    await Promise.all([
+      ItemLedgerEntry.aggregate<{ sum: number }>([
+        { $match: { projectId: projectObj, date: { $lte: endDate }, paidAmount: { $gt: 0 } } },
+        { $group: { _id: null, sum: { $sum: "$paidAmount" } } },
+      ]),
+      VendorPayment.aggregate<{ sum: number }>([
+        {
+          $lookup: {
+            from: Vendor.collection.name,
+            localField: "vendorId",
+            foreignField: "_id",
+            as: "v",
+          },
+        },
+        { $unwind: "$v" },
+        { $match: { date: { $lte: endDate }, "v.projectId": projectObj } },
+        { $group: { _id: null, sum: { $sum: "$amount" } } },
+      ]),
+      ContractorPayment.aggregate<{ sum: number }>([
+        {
+          $lookup: {
+            from: Contractor.collection.name,
+            localField: "contractorId",
+            foreignField: "_id",
+            as: "c",
+          },
+        },
+        { $unwind: "$c" },
+        { $match: { date: { $lte: endDate }, "c.projectId": projectObj } },
+        { $group: { _id: null, sum: { $sum: "$amount" } } },
+      ]),
+      EmployeePayment.aggregate<{ sum: number }>([
+        {
+          $lookup: {
+            from: Employee.collection.name,
+            localField: "employeeId",
+            foreignField: "_id",
+            as: "e",
+          },
+        },
+        { $unwind: "$e" },
+        { $match: { date: { $lte: endDate }, "e.projectId": projectObj } },
+        { $group: { _id: null, sum: { $sum: "$amount" } } },
+      ]),
+      Expense.aggregate<{ sum: number }>([
+        { $match: { projectId: projectObj, date: { $lte: endDate } } },
+        { $group: { _id: null, sum: { $sum: "$amount" } } },
+      ]),
+      MachinePayment.aggregate<{ sum: number }>([
+        {
+          $lookup: {
+            from: Machine.collection.name,
+            localField: "machineId",
+            foreignField: "_id",
+            as: "m",
+          },
+        },
+        { $unwind: "$m" },
+        { $match: { date: { $lte: endDate }, "m.projectId": projectObj } },
+        { $group: { _id: null, sum: { $sum: "$amount" } } },
+      ]),
+      NonConsumableLedgerEntry.aggregate<{ sum: number }>([
+        {
+          $match: {
+            date: { $lte: endDate },
+            eventType: "Purchase",
+            totalCost: { $gt: 0 },
+            $or: [{ projectTo: projectObj }, { projectFrom: projectObj }],
+          },
+        },
+        { $group: { _id: null, sum: { $sum: "$totalCost" } } },
+      ]),
+    ]);
+
+  return (
+    (consumable[0]?.sum ?? 0) +
+    (vendor[0]?.sum ?? 0) +
+    (contractor[0]?.sum ?? 0) +
+    (employee[0]?.sum ?? 0) +
+    (expense[0]?.sum ?? 0) +
+    (machine[0]?.sum ?? 0) +
+    (nonConsumable[0]?.sum ?? 0)
+  );
+}
+
 export async function getCashExpensesReport(
   actor: { userId: string; role: string },
   projectId: string,
-  date: string
+  startDate: string,
+  endDate: string
 ): Promise<CashExpensesReport> {
   if (!mongoose.Types.ObjectId.isValid(projectId)) {
     throw new Error("Invalid project ID");
@@ -312,52 +418,53 @@ export async function getCashExpensesReport(
     throw new Error("Project not found or access denied");
   }
 
-  const [bankAccounts, bankTxByAccount, bankOutflowsToProjectToday, projectAdjustmentsInflowsToday, consumablePayments, vendorPayments, contractorPayments, employeePayments, expenses, machinePayments, nonConsumablePayments] = await Promise.all([
-    BankAccount.find({}).select("_id name currentBalance").lean(),
-    BankTransaction.find({ date }).lean().then((txs) => {
-      const byAccount: Record<string, { inflow: number; outflow: number }> = {};
-      for (const t of txs) {
-        const id = t.accountId.toString();
-        if (!byAccount[id]) byAccount[id] = { inflow: 0, outflow: 0 };
-        if (t.type === "inflow") byAccount[id].inflow += t.amount;
-        else byAccount[id].outflow += t.amount;
-      }
-      return byAccount;
-    }),
-    BankTransaction.find({ projectId: projectObj, type: "outflow", date })
-      .lean()
-      .then((txs) => txs.reduce((s, t) => s + t.amount, 0)),
-    ProjectBalanceAdjustment.find({ projectId: projectObj, date })
-      .lean()
-      .then((rows) => rows.filter((r) => r.amount > 0).reduce((s, r) => s + r.amount, 0)),
-    ItemLedgerEntry.find({ projectId: projectObj, date, paidAmount: { $gt: 0 } })
+  const inRange = { $gte: startDate, $lte: endDate } as const;
+
+  const [
+    bankAccounts,
+    bankOutflowsToProjectTxs,
+    projectAdjustmentsInflowsRows,
+    consumablePayments,
+    vendorPayments,
+    contractorPayments,
+    employeePayments,
+    expenses,
+    machinePayments,
+    nonConsumablePayments,
+    allTimeProjectPayments,
+  ] = await Promise.all([
+    BankAccount.find({}).select("_id name").lean(),
+    BankTransaction.find({ projectId: projectObj, type: "outflow", date: inRange }).lean(),
+    ProjectBalanceAdjustment.find({ projectId: projectObj, date: inRange }).lean(),
+    ItemLedgerEntry.find({ projectId: projectObj, date: inRange, paidAmount: { $gt: 0 } })
       .populate<{ itemId: { name: string } }>("itemId", "name")
       .lean(),
-    VendorPayment.find({ date })
+    VendorPayment.find({ date: inRange })
       .populate<{ vendorId: { projectId: mongoose.Types.ObjectId; name: string } }>("vendorId", "projectId name")
       .lean()
       .then((rows) => rows.filter((r) => r.vendorId?.projectId?.toString() === projectId)),
-    ContractorPayment.find({ date })
+    ContractorPayment.find({ date: inRange })
       .populate<{ contractorId: { projectId: mongoose.Types.ObjectId; name: string } }>("contractorId", "projectId name")
       .lean()
       .then((rows) => rows.filter((r) => r.contractorId?.projectId?.toString() === projectId)),
-    EmployeePayment.find({ date })
+    EmployeePayment.find({ date: inRange })
       .populate<{ employeeId: { projectId: mongoose.Types.ObjectId; name: string } }>("employeeId", "projectId name")
       .lean()
       .then((rows) => rows.filter((r) => r.employeeId?.projectId?.toString() === projectId)),
-    Expense.find({ projectId: projectObj, date }).lean(),
-    MachinePayment.find({ date })
+    Expense.find({ projectId: projectObj, date: inRange }).lean(),
+    MachinePayment.find({ date: inRange })
       .populate<{ machineId: { projectId: mongoose.Types.ObjectId; name: string } }>("machineId", "projectId name")
       .lean()
       .then((rows) => rows.filter((r) => r.machineId?.projectId?.toString() === projectId)),
     NonConsumableLedgerEntry.find({
-      date,
+      date: inRange,
       eventType: "Purchase",
       totalCost: { $gt: 0 },
       $or: [{ projectTo: projectObj }, { projectFrom: projectObj }],
     })
       .populate<{ itemId: { name: string } }>("itemId", "name")
       .lean(),
+    fetchProjectAllTimePaymentsToDate(projectObj, endDate),
   ]);
 
   const internal: InternalPayment[] = [];
@@ -469,7 +576,7 @@ export async function getCashExpensesReport(
   const priorTotals =
     internal.length === 0
       ? new Map<string, number>()
-      : await fetchPriorPaymentTotals(projectObj, date, {
+      : await fetchPriorPaymentTotals(projectObj, startDate, {
           consumableItemIds: uniqObjectIds(
             internal.filter((r) => r.entityType === "Consumable").map((r) => r.entityKey.split(":")[1])
           ),
@@ -497,34 +604,75 @@ export async function getCashExpensesReport(
 
   const totalPayments = payments.reduce((s, p) => s + p.amount, 0);
   const projectLedgerClosing = project.balance ?? 0;
-  const projectLedgerInflows = bankOutflowsToProjectToday + projectAdjustmentsInflowsToday;
-  // Project: opening + total inflows to project - total payments = closing (project.balance)
-  const projectInflowsToday = projectLedgerInflows;
-  const projectLedgerOpening = projectLedgerClosing - projectInflowsToday + totalPayments;
-  // Bank: opening = start-of-day balance; closing = current; inflows = sum of inflows to that bank on the day
-  const bankAccountsWithClosing = bankAccounts.map((acc) => {
-    const id = acc._id.toString();
-    const current = acc.currentBalance ?? 0;
-    const day = bankTxByAccount[id] ?? { inflow: 0, outflow: 0 };
-    const opening = current - day.inflow + day.outflow;
-    return {
-      id,
-      name: acc.name,
-      openingBalance: opening,
-      closingBalance: current,
-      inflows: day.inflow,
-    };
+  const bankNameById: Record<string, string> = {};
+  for (const acc of bankAccounts) {
+    bankNameById[acc._id.toString()] = acc.name;
+  }
+  const bankOutflowsToProjectRange = bankOutflowsToProjectTxs.reduce((s, t) => s + t.amount, 0);
+  const projectAdjustmentsInflowsRange = projectAdjustmentsInflowsRows
+    .filter((r) => r.amount > 0)
+    .reduce((s, r) => s + r.amount, 0);
+  const projectLedgerInflows = bankOutflowsToProjectRange + projectAdjustmentsInflowsRange;
+  const inflowTransactions = [
+    ...bankOutflowsToProjectTxs.map((tx) => {
+      const accountId = tx.accountId.toString();
+      const current = tx.amount;
+      const previous = 0;
+      const total = current + previous;
+      return {
+        id: `bank-${tx._id.toString()}`,
+        date: tx.date,
+        source: bankNameById[accountId] ?? "Bank Account",
+        remarks: joinRemarks(tx.referenceId, tx.remarks),
+        current,
+        previous,
+        total,
+        tPayment: total,
+      };
+    }),
+    ...projectAdjustmentsInflowsRows
+      .filter((r) => r.amount > 0)
+      .map((r) => {
+        const current = r.amount;
+        const previous = 0;
+        const total = current + previous;
+        return {
+          id: `adj-${r._id.toString()}`,
+          date: r.date,
+          source: "",
+          remarks: r.remarks?.trim() ?? "",
+          current,
+          previous,
+          total,
+          tPayment: total,
+        };
+      }),
+  ].sort((a, b) => {
+    const d = a.date.localeCompare(b.date);
+    if (d !== 0) return d;
+    return a.id.localeCompare(b.id);
   });
-  const bankOpeningTotal = bankAccountsWithClosing.reduce((s, a) => s + a.openingBalance, 0);
-  const bankClosingTotal = bankAccountsWithClosing.reduce((s, a) => s + a.closingBalance, 0);
-  const totalOpening = projectLedgerOpening + bankOpeningTotal;
-  const closingBalance = projectLedgerClosing + bankClosingTotal;
+  // Project: opening + inflows in selected period - total payments in selected period = closing
+  const projectLedgerOpening = projectLedgerClosing - projectLedgerInflows + totalPayments;
+
+  const openingRowCurrent = 0;
+  const openingRowPrevious = projectLedgerOpening;
+  const openingRowTotal = openingRowCurrent + openingRowPrevious;
+  const openingRowTPayment = allTimeProjectPayments;
+
+  const closingBalance = projectLedgerClosing;
 
   const openingBalances: CashExpensesReportOpeningBalances = {
     projectLedger: projectLedgerOpening,
     projectLedgerClosing,
     projectLedgerInflows,
-    bankAccounts: bankAccountsWithClosing,
+    openingRow: {
+      current: openingRowCurrent,
+      previous: openingRowPrevious,
+      total: openingRowTotal,
+      tPayment: openingRowTPayment,
+    },
+    inflowTransactions,
   };
 
   return {

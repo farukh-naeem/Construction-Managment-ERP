@@ -72,6 +72,9 @@ export default function Vendors() {
   const [editVendor, setEditVendor] = useState<ApiVendor | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteVendorState, setDeleteVendorState] = useState<ApiVendor | null>(null);
+  const selectedProjectName = isSiteManager
+    ? (projects.find((p) => p.id === assignedProjectId)?.name ?? "Project")
+    : (projects.find((p) => p.id === selectedProjectId)?.name ?? "Project");
 
   const canEditDelete = user?.role !== "Site Manager";
   const vendorsPagination = useTablePagination(filteredVendors, { defaultPageSize: 12 });
@@ -101,6 +104,7 @@ export default function Vendors() {
       <PageHeader
         title="Vendors"
         subtitle="Supplier & vendor management"
+        printProjectName={selectedProjectName}
         printTargetId="vendors-table"
         actions={<Button variant="warning" size="sm" onClick={() => setAddOpen(true)} disabled={!effectiveProjectId}><Plus className="h-4 w-4 mr-1" />Add Vendor</Button>}
       />

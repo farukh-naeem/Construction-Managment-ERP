@@ -30,6 +30,44 @@ export interface ListMachinesResult {
   total: number;
 }
 
+export interface ApiMachineRunningBillRow extends ApiMachine {
+  currentHours: number;
+  previousHours: number;
+  totalHours: number;
+  thisBill: number;
+  previousBill: number;
+  totalAmount: number;
+  advance: number;
+  netAmount: number;
+}
+
+export interface ApiRunningBillSummary {
+  currentHours: number;
+  previousHours: number;
+  totalHours: number;
+  thisBill: number;
+  previousBill: number;
+  totalAmount: number;
+  advance: number;
+  netAmount: number;
+}
+
+export interface ListMachinesRunningBillResult {
+  items: ApiMachineRunningBillRow[];
+  total: number;
+  periodStart: string;
+  periodEnd: string;
+  summary: ApiRunningBillSummary;
+}
+
+export interface ListMachinesRunningBillParams {
+  projectId?: string | null;
+  periodStart: string;
+  periodEnd: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export interface CreateMachineInput {
   projectId?: string;
   name: string;
@@ -49,6 +87,18 @@ export async function listMachines(params: ListMachinesParams): Promise<ListMach
   if (params.pageSize != null) search.set("pageSize", String(params.pageSize));
   const q = search.toString();
   return api<ListMachinesResult>(`/api/machines${q ? `?${q}` : ""}`);
+}
+
+export async function listMachinesRunningBill(
+  params: ListMachinesRunningBillParams
+): Promise<ListMachinesRunningBillResult> {
+  const search = new URLSearchParams();
+  if (params.projectId != null && params.projectId !== "") search.set("projectId", params.projectId);
+  search.set("periodStart", params.periodStart);
+  search.set("periodEnd", params.periodEnd);
+  if (params.page != null) search.set("page", String(params.page));
+  if (params.pageSize != null) search.set("pageSize", String(params.pageSize));
+  return api<ListMachinesRunningBillResult>(`/api/machines/running-bill?${search.toString()}`);
 }
 
 export async function getMachine(id: string): Promise<ApiMachineWithTotals> {

@@ -90,6 +90,15 @@ export function monthLabel(month: string) {
   );
 }
 
+/** Compact label for salary sheets, e.g. Sep-2025 */
+export function salarySheetMonthLabel(monthKey: string) {
+  const [year, monthNumber] = monthKey.split("-").map(Number);
+  const short = new Intl.DateTimeFormat("en-US", { month: "short" }).format(
+    new Date(year, monthNumber - 1, 1)
+  );
+  return `${short}-${year}`;
+}
+
 export function buildMonthOptions(anchorMonth: string, before = 12, after = 12) {
   const values: string[] = [];
   for (let offset = before; offset >= 1; offset -= 1) {

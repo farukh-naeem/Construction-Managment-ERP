@@ -228,7 +228,7 @@ export default function BankAccounts() {
                   <th className="px-5 py-3 text-left text-sm font-medium">Destination</th>
                   <th className="px-5 py-3 text-left text-sm font-medium">Mode</th>
                   <th className="px-5 py-3 text-left text-sm font-medium">Reference</th>
-                  {isSuperAdmin && <th className="px-5 py-3 text-right text-sm font-medium">Actions</th>}
+                  {isSuperAdmin && <th className="px-5 py-3 text-right text-sm font-medium print-hidden">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -257,7 +257,7 @@ export default function BankAccounts() {
                       <td className="px-5 py-3.5 text-sm text-muted-foreground">{tx.mode}</td>
                       <td className="px-5 py-3.5 text-sm font-mono text-muted-foreground/70">{[tx.referenceId, tx.remarks].filter(Boolean).join(" — ") || "—"}</td>
                       {isSuperAdmin && (
-                        <td className="px-5 py-3.5 text-right">
+                        <td className="px-5 py-3.5 text-right print-hidden">
                           <Button
                             variant="ghost"
                             size="icon"

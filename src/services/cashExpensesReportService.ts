@@ -1,5 +1,5 @@
 /**
- * Cash & Expenses report API — daily report for a project (opening balances + payments on date).
+ * Cash & Expenses report API — period report for a project.
  */
 
 import { api } from "./api";
@@ -23,19 +23,26 @@ export interface CashExpensesReportPayment {
   sourceId?: string;
 }
 
-export interface CashExpensesReportBankAccount {
-  id: string;
-  name: string;
-  openingBalance: number;
-  closingBalance: number;
-  inflows: number;
-}
-
 export interface CashExpensesReportOpeningBalances {
   projectLedger: number;
   projectLedgerClosing: number;
   projectLedgerInflows: number;
-  bankAccounts: CashExpensesReportBankAccount[];
+  openingRow: {
+    current: number;
+    previous: number;
+    total: number;
+    tPayment: number;
+  };
+  inflowTransactions: {
+    id: string;
+    date: string;
+    source: string;
+    remarks: string;
+    current: number;
+    previous: number;
+    total: number;
+    tPayment: number;
+  }[];
 }
 
 export interface CashExpensesReportReceipt {
@@ -58,9 +65,10 @@ export interface CashExpensesReport {
 
 export async function getCashExpensesReport(
   projectId: string,
-  date: string
+  startDate: string,
+  endDate: string
 ): Promise<CashExpensesReport> {
-  const params = new URLSearchParams({ date });
+  const params = new URLSearchParams({ startDate, endDate });
   return api<CashExpensesReport>(
     `/api/projects/${projectId}/cash-expenses-report?${params.toString()}`
   );

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Layout from "@/components/Layout";
 import PageHeader from "@/components/PageHeader";
 import { formatCurrency } from "@/lib/mock-data";
@@ -15,18 +15,11 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
 import type { CashExpensesEntityType } from "@/services/cashExpensesReportService";
 
 function toTodayISO(): string {
   const d = new Date();
-  return d.toISOString().slice(0, 10);
-}
-
-function addDays(isoDate: string, delta: number): string {
-  const d = new Date(isoDate + "T12:00:00");
-  d.setDate(d.getDate() + delta);
   return d.toISOString().slice(0, 10);
 }
 
@@ -73,11 +66,19 @@ export default function CashAndExpenses() {
   const assignedProjectId = user?.assignedProjectId ?? null;
 
   const effectiveProjectId = isSiteManager ? assignedProjectId : (selectedProjectId || null);
-  const [reportDate, setReportDate] = useState(toTodayISO);
+  const [startDate, setStartDate] = useState(toTodayISO);
+  const [endDate, setEndDate] = useState(toTodayISO);
+
+  useEffect(() => {
+    if (endDate < startDate) {
+      setEndDate(startDate);
+    }
+  }, [startDate, endDate]);
 
   const { report, loading, error } = useCashExpensesReport(
     effectiveProjectId ?? undefined,
-    reportDate
+    startDate,
+    endDate
   );
 
   const projectsForSelector = useMemo(
@@ -94,37 +95,56 @@ export default function CashAndExpenses() {
 
   const subtitle =
     isSiteManager && selectedProjectName
-      ? `Daily report — ${selectedProjectName}`
+      ? `Report — ${selectedProjectName}`
       : effectiveProjectId
-        ? `Daily report — ${selectedProjectName}`
-        : "Daily report — Select project";
+        ? `Report — ${selectedProjectName}`
+        : "Report — Select project";
+
+  const periodLabel = startDate === endDate ? startDate : `${startDate} to ${endDate}`;
 
   const totalPayments =
     report?.totalPayments ??
     (report?.payments?.reduce((s, p) => s + p.amount, 0) ?? 0);
 
-  const totalOpening =
-    (report?.openingBalances?.projectLedger ?? 0) +
-    (report?.openingBalances?.bankAccounts ?? []).reduce(
-      (s, a) => s + a.openingBalance,
-      0
-    );
+  const openingRows = report?.openingBalances
+    ? [
+        {
+          id: "opening-row",
+          label: "Opening balance",
+          source: "",
+          remarks: "",
+          current: report.openingBalances.openingRow.current ?? 0,
+          previous: report.openingBalances.openingRow.previous ?? 0,
+          total: report.openingBalances.openingRow.total ?? 0,
+          tPayment: report.openingBalances.openingRow.tPayment ?? 0,
+          isOpeningRow: true,
+        },
+        ...(report.openingBalances.inflowTransactions ?? []).map((tx) => ({
+          id: tx.id,
+          label: "",
+          source: tx.source,
+          remarks: tx.remarks,
+          current: tx.current ?? 0,
+          previous: tx.previous ?? 0,
+          total: tx.total ?? 0,
+          tPayment: tx.tPayment ?? 0,
+          isOpeningRow: false,
+          date: tx.date,
+        })),
+      ]
+    : [];
 
-  const totalClosing =
-    (report?.openingBalances?.projectLedgerClosing ?? 0) +
-    (report?.openingBalances?.bankAccounts ?? []).reduce(
-      (s, a) => s + (a.closingBalance ?? 0),
-      0
-    );
+  const openingTotals = openingRows.reduce(
+    (acc, row) => ({
+      current: acc.current + row.current,
+      previous: acc.previous + row.previous,
+      total: acc.total + row.total,
+      tPayment: acc.tPayment + row.tPayment,
+    }),
+    { current: 0, previous: 0, total: 0, tPayment: 0 }
+  );
 
-  const totalInflows =
-    (report?.openingBalances?.projectLedgerInflows ?? 0) +
-    (report?.openingBalances?.bankAccounts ?? []).reduce(
-      (s, a) => s + (a.inflows ?? 0),
-      0
-    );
-
-  const closingBalance = report?.closingBalance ?? totalClosing;
+  const closingBalance = report?.closingBalance ?? 0;
 
   const thBase =
     "border border-border/60 bg-muted/20 px-3 py-2.5 text-left text-xs font-medium text-muted-foreground print:bg-neutral-200 print:text-black";
@@ -137,9 +157,10 @@ export default function CashAndExpenses() {
       <PageHeader
         title="Cash & Expenses"
         subtitle={subtitle}
+        printProjectName={selectedProjectName}
         printTargetId="cash-expenses-report"
         printOptions={{
-          printDocumentTitle: `Cash & Expenses — ${selectedProjectName} — ${reportDate}`,
+          printDocumentTitle: `Cash & Expenses — ${selectedProjectName} — ${periodLabel}`,
           additionalPrintCss: CASH_REPORT_PRINT_CSS,
         }}
       />
@@ -180,36 +201,26 @@ export default function CashAndExpenses() {
           )}
           <div className="min-w-[220px]">
             <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Report date
+              Start date
             </Label>
-            <div className="mt-1 flex items-center gap-1">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-9 w-9 shrink-0"
-                onClick={() => setReportDate(addDays(reportDate, -1))}
-                title="Previous day"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Input
-                type="date"
-                className="flex-1 min-w-0"
-                value={reportDate}
-                onChange={(e) => setReportDate(e.target.value)}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-9 w-9 shrink-0"
-                onClick={() => setReportDate(addDays(reportDate, 1))}
-                title="Next day"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
+            <Input
+              type="date"
+              className="mt-1"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+          </div>
+          <div className="min-w-[220px]">
+            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              End date
+            </Label>
+            <Input
+              type="date"
+              className="mt-1"
+              value={endDate}
+              min={startDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
           </div>
         </div>
 
@@ -237,66 +248,61 @@ export default function CashAndExpenses() {
                   <>
                     <tr className="cash-section">
                       <td colSpan={6} className={tdBase}>
-                        Opening balances ({reportDate})
+                        Opening balances ({periodLabel})
                       </td>
                     </tr>
                     <tr>
-                      <th colSpan={2} className={thBase}>
-                        Source / account
-                      </th>
-                      <th className={thNum}>Previous</th>
+                      <th className={thBase}>Source / account</th>
                       <th className={thNum}>Current</th>
-                      <th className={thNum}>Total payment</th>
-                      <th className={thBase} aria-hidden />
+                      <th className={thNum}>Previous</th>
+                      <th className={thNum}>Total</th>
+                      <th className={thNum}>T.Payment</th>
                     </tr>
-                    <tr>
-                      <td colSpan={2} className={`${tdBase} text-muted-foreground`}>
-                        Project ledger
-                      </td>
-                      <td className={tdNum}>
-                        {formatCurrency(report.openingBalances.projectLedger ?? 0)}
-                      </td>
-                      <td className={tdNum}>
-                        {formatCurrency(report.openingBalances.projectLedgerInflows ?? 0)}
-                      </td>
-                      <td className={tdNum}>
-                        {formatCurrency(report.openingBalances.projectLedgerClosing ?? 0)}
-                      </td>
-                      <td className={tdBase} />
-                    </tr>
-                    {(report.openingBalances.bankAccounts ?? []).map((acc) => (
-                      <tr key={acc.id}>
-                        <td colSpan={2} className={`${tdBase} text-muted-foreground`}>
-                          {acc.name}
+                    {openingRows.map((row) => (
+                      <tr key={row.id}>
+                        <td className={`${tdBase} text-muted-foreground`}>
+                          {row.isOpeningRow
+                            ? row.label
+                            : [row.date, row.source?.trim() || null, row.remarks?.trim() || null]
+                                .filter(Boolean)
+                                .join(" — ")}
                         </td>
-                        <td className={tdNum}>{formatCurrency(acc.openingBalance ?? 0)}</td>
-                        <td className={tdNum}>{formatCurrency(acc.inflows ?? 0)}</td>
-                        <td className={tdNum}>{formatCurrency(acc.closingBalance ?? 0)}</td>
-                        <td className={tdBase} />
+                        <td className={row.current ? tdNum : `${tdNum} text-muted-foreground`}>
+                          {row.current ? formatCurrency(row.current) : " "}
+                        </td>
+                        <td className={row.previous ? tdNum : `${tdNum} text-muted-foreground`}>
+                          {row.previous ? formatCurrency(row.previous) : " "}
+                        </td>
+                        <td className={row.total ? tdNum : `${tdNum} text-muted-foreground`}>
+                          {row.total ? formatCurrency(row.total) : " "}
+                        </td>
+                        <td className={row.tPayment ? tdNum : `${tdNum} text-muted-foreground`}>
+                          {row.tPayment ? formatCurrency(row.tPayment) : " "}
+                        </td>
                       </tr>
                     ))}
                     <tr className="font-medium bg-muted/10">
-                      <td colSpan={2} className={tdBase}>
+                      <td className={tdBase}>
                         Total
                       </td>
-                      <td className={tdNum}>{formatCurrency(totalOpening)}</td>
-                      <td className={tdNum}>{formatCurrency(totalInflows)}</td>
-                      <td className={tdNum}>{formatCurrency(totalClosing)}</td>
-                      <td className={tdBase} />
+                      <td className={tdNum}>{formatCurrency(openingTotals.current)}</td>
+                      <td className={tdNum}>{formatCurrency(openingTotals.previous)}</td>
+                      <td className={tdNum}>{formatCurrency(openingTotals.total)}</td>
+                      <td className={tdNum}>{formatCurrency(openingTotals.tPayment)}</td>
                     </tr>
                   </>
                 ) : null}
 
                 <tr className="cash-section">
                   <td colSpan={6} className={tdBase}>
-                    Payments ({reportDate})
+                    Payments ({periodLabel})
                   </td>
                 </tr>
                 <tr>
                   <th className={thBase}>Entity name</th>
                   <th className={thBase}>Type</th>
-                  <th className={thNum}>Previous</th>
                   <th className={thNum}>Current</th>
+                  <th className={thNum}>Previous</th>
                   <th className={thNum}>Total</th>
                   <th className={thBase}>Remarks</th>
                 </tr>
@@ -316,8 +322,8 @@ export default function CashAndExpenses() {
                       <td className={`${tdBase} text-muted-foreground`}>
                         {ENTITY_TYPE_LABELS[p.entityType] ?? p.entityType}
                       </td>
-                      <td className={tdNum}>{formatCurrency(p.previousAmount)}</td>
                       <td className={tdNum}>{formatCurrency(p.amount)}</td>
+                      <td className={tdNum}>{formatCurrency(p.previousAmount)}</td>
                       <td className={tdNum}>{formatCurrency(p.totalAmount)}</td>
                       <td
                         className={`${tdBase} text-muted-foreground max-w-[200px] truncate`}
@@ -333,10 +339,10 @@ export default function CashAndExpenses() {
                     <td colSpan={2} className={tdBase}>
                       Total payments
                     </td>
+                    <td className={tdNum}>{formatCurrency(totalPayments)}</td>
                     <td className={`${tdNum} text-muted-foreground font-normal print:text-black`}>
                       —
                     </td>
-                    <td className={tdNum}>{formatCurrency(totalPayments)}</td>
                     <td className={`${tdNum} text-muted-foreground font-normal print:text-black`}>
                       —
                     </td>
@@ -348,7 +354,7 @@ export default function CashAndExpenses() {
                   <>
                     <tr className="cash-section">
                       <td colSpan={6} className={tdBase}>
-                        Summary ({reportDate})
+                        Summary ({periodLabel})
                       </td>
                     </tr>
                     <tr>
@@ -364,7 +370,7 @@ export default function CashAndExpenses() {
                         Total opening
                       </td>
                       <td colSpan={2} className={tdNum}>
-                        {formatCurrency(totalOpening)}
+                        {formatCurrency(openingTotals.total)}
                       </td>
                     </tr>
                     <tr className="bg-warning/20 font-bold print:bg-amber-100">

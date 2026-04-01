@@ -68,6 +68,9 @@ export default function ConsumableInventory() {
   const [consumptionOpen, setConsumptionOpen] = useState(false);
   const [editConsumption, setEditConsumption] = useState<ApiStockConsumption | null>(null);
   const [deleteConsumptionState, setDeleteConsumptionState] = useState<ApiStockConsumption | null>(null);
+  const selectedProjectName = isSiteManager
+    ? (projects.find((p) => p.id === assignedProjectId)?.name ?? "Project")
+    : (projects.find((p) => p.id === selectedProjectId)?.name ?? "Project");
 
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -116,6 +119,7 @@ export default function ConsumableInventory() {
       <PageHeader
         title="Consumable Inventory"
         subtitle="Materials that reduce with usage — per project"
+        printProjectName={selectedProjectName}
         printTargetId="consumable-tabs"
         actions={
           <>

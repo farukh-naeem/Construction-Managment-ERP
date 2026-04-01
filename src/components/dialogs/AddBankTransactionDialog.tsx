@@ -142,12 +142,12 @@ export function AddBankTransactionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl p-4 sm:p-6">
         <DialogHeader className="pb-2">
           <DialogTitle>Add Transaction</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">Date *</Label>
               <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-0.5 h-9" />
@@ -179,7 +179,7 @@ export function AddBankTransactionDialog({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">Amount *</Label>
               <Input
@@ -219,7 +219,7 @@ export function AddBankTransactionDialog({
               <p className="text-[10px] text-muted-foreground mt-0.5">Who paid into the account</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <Label className="text-xs">Destination</Label>
                 <Select
@@ -250,7 +250,7 @@ export function AddBankTransactionDialog({
                   />
                 </div>
               ) : (
-                <div className="col-span-2">
+                <div className="sm:col-span-2">
                   <Label className="text-xs">Project *</Label>
                   <Combobox
                     options={projectOptions}
@@ -266,7 +266,7 @@ export function AddBankTransactionDialog({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label className="text-xs">Reference</Label>
               <Input value={referenceId} onChange={(e) => setReferenceId(e.target.value)} placeholder="Cheque/Ref No" className="mt-0.5 h-9" />
@@ -276,7 +276,7 @@ export function AddBankTransactionDialog({
               <Input value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Optional" className="mt-0.5 h-9" />
             </div>
           </div>
-          <DialogFooter className="pt-2">
+          <DialogFooter className="pt-2 gap-2 sm:gap-0">
             <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={loading}>Cancel</Button>
             <Button type="submit" variant="warning" size="sm" disabled={loading}>{loading ? "Recording..." : "Add Transaction"}</Button>
           </DialogFooter>

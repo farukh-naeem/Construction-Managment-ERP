@@ -181,3 +181,11 @@ table td.text-destructive {
 .dark table td.text-destructive {
   color: hsl(0 62% 55%);
 }
+
+/* Running bill: machine names stay plain text when printing from the browser */
+@media print {
+  #machinery-table .machinery-running-table a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+}

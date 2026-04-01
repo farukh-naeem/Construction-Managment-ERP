@@ -133,7 +133,7 @@ export default function ProjectLedger() {
                     <th className="px-5 py-3 text-left text-sm font-medium">Source</th>
                     <th className="px-5 py-3 text-left text-sm font-medium">Destination</th>
                     <th className="px-5 py-3 text-left text-sm font-medium">Reference / Remarks</th>
-                    {isSuperAdmin && <th className="px-5 py-3 text-right text-sm font-medium">Actions</th>}
+                    {isSuperAdmin && <th className="px-5 py-3 text-right text-sm font-medium print-hidden">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -165,7 +165,7 @@ export default function ProjectLedger() {
                             : (row.remarks ?? "—")}
                         </td>
                         {isSuperAdmin && (
-                          <td className="px-5 py-3.5 text-right">
+                          <td className="px-5 py-3.5 text-right print-hidden">
                             {row.type === "manual_adjustment" ? (
                               <div className="flex justify-end gap-1">
                                 <Button

@@ -1,7 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import Layout from "@/components/Layout";
 import PageHeader from "@/components/PageHeader";
-import { formatCurrency } from "@/lib/mock-data";
 import { useAuth } from "@/context/AuthContext";
 import { useSelectedProject } from "@/context/SelectedProjectContext";
 import { useProjects } from "@/hooks/useProjects";
@@ -102,14 +101,28 @@ export default function CashAndExpenses() {
 
   const periodLabel = startDate === endDate ? startDate : `${startDate} to ${endDate}`;
 
+  const formatReportCurrency = (value: number | null | undefined): string => {
+    if (!value) return "-";
+    return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+  };
+
   const totalPayments =
     report?.totalPayments ??
     (report?.payments?.reduce((s, p) => s + p.amount, 0) ?? 0);
+  const paymentTotals = (report?.payments ?? []).reduce(
+    (acc, p) => ({
+      current: acc.current + (p.amount ?? 0),
+      previous: acc.previous + (p.previousAmount ?? 0),
+      total: acc.total + (p.totalAmount ?? 0),
+    }),
+    { current: 0, previous: 0, total: 0 }
+  );
 
   const openingRows = report?.openingBalances
     ? [
         {
           id: "opening-row",
+          date: startDate,
           label: "Opening balance",
           source: "",
           remarks: "",
@@ -143,6 +156,17 @@ export default function CashAndExpenses() {
     }),
     { current: 0, previous: 0, total: 0, tPayment: 0 }
   );
+  const openingBalanceTPayment = report?.openingBalances?.openingRow?.tPayment ?? 0;
+  const receiptsBalance = {
+    current: openingTotals.total,
+    previous: openingBalanceTPayment,
+    total: openingTotals.tPayment,
+  };
+  const dayClosing = {
+    current: receiptsBalance.current - paymentTotals.current,
+    previous: receiptsBalance.previous - paymentTotals.previous,
+    total: receiptsBalance.total - paymentTotals.total,
+  };
 
   const closingBalance = report?.closingBalance ?? 0;
 
@@ -252,6 +276,7 @@ export default function CashAndExpenses() {
                       </td>
                     </tr>
                     <tr>
+                      <th className={thBase}>Date</th>
                       <th className={thBase}>Source / account</th>
                       <th className={thNum}>Current</th>
                       <th className={thNum}>Previous</th>
@@ -261,34 +286,30 @@ export default function CashAndExpenses() {
                     {openingRows.map((row) => (
                       <tr key={row.id}>
                         <td className={`${tdBase} text-muted-foreground`}>
+                          {row.date || "-"}
+                        </td>
+                        <td className={`${tdBase} text-muted-foreground`}>
                           {row.isOpeningRow
                             ? row.label
-                            : [row.date, row.source?.trim() || null, row.remarks?.trim() || null]
+                            : [row.source?.trim() || null, row.remarks?.trim() || null]
                                 .filter(Boolean)
-                                .join(" — ")}
+                                .join(" — ") || "-"}
                         </td>
-                        <td className={row.current ? tdNum : `${tdNum} text-muted-foreground`}>
-                          {row.current ? formatCurrency(row.current) : " "}
-                        </td>
-                        <td className={row.previous ? tdNum : `${tdNum} text-muted-foreground`}>
-                          {row.previous ? formatCurrency(row.previous) : " "}
-                        </td>
-                        <td className={row.total ? tdNum : `${tdNum} text-muted-foreground`}>
-                          {row.total ? formatCurrency(row.total) : " "}
-                        </td>
-                        <td className={row.tPayment ? tdNum : `${tdNum} text-muted-foreground`}>
-                          {row.tPayment ? formatCurrency(row.tPayment) : " "}
-                        </td>
+                        <td className={tdNum}>{formatReportCurrency(row.current)}</td>
+                        <td className={tdNum}>{formatReportCurrency(row.previous)}</td>
+                        <td className={tdNum}>{formatReportCurrency(row.total)}</td>
+                        <td className={tdNum}>{formatReportCurrency(row.tPayment)}</td>
                       </tr>
                     ))}
                     <tr className="font-medium bg-muted/10">
+                      <td className={tdBase}>-</td>
                       <td className={tdBase}>
                         Total
                       </td>
-                      <td className={tdNum}>{formatCurrency(openingTotals.current)}</td>
-                      <td className={tdNum}>{formatCurrency(openingTotals.previous)}</td>
-                      <td className={tdNum}>{formatCurrency(openingTotals.total)}</td>
-                      <td className={tdNum}>{formatCurrency(openingTotals.tPayment)}</td>
+                      <td className={tdNum}>{formatReportCurrency(openingTotals.current)}</td>
+                      <td className={tdNum}>{formatReportCurrency(openingTotals.previous)}</td>
+                      <td className={tdNum}>{formatReportCurrency(openingTotals.total)}</td>
+                      <td className={tdNum}>{formatReportCurrency(openingTotals.tPayment)}</td>
                     </tr>
                   </>
                 ) : null}
@@ -322,14 +343,14 @@ export default function CashAndExpenses() {
                       <td className={`${tdBase} text-muted-foreground`}>
                         {ENTITY_TYPE_LABELS[p.entityType] ?? p.entityType}
                       </td>
-                      <td className={tdNum}>{formatCurrency(p.amount)}</td>
-                      <td className={tdNum}>{formatCurrency(p.previousAmount)}</td>
-                      <td className={tdNum}>{formatCurrency(p.totalAmount)}</td>
+                      <td className={tdNum}>{formatReportCurrency(p.amount)}</td>
+                      <td className={tdNum}>{formatReportCurrency(p.previousAmount)}</td>
+                      <td className={tdNum}>{formatReportCurrency(p.totalAmount)}</td>
                       <td
                         className={`${tdBase} text-muted-foreground max-w-[200px] truncate`}
                         title={p.remarks || undefined}
                       >
-                        {p.remarks || "—"}
+                        {p.remarks || "-"}
                       </td>
                     </tr>
                   ))
@@ -339,57 +360,33 @@ export default function CashAndExpenses() {
                     <td colSpan={2} className={tdBase}>
                       Total payments
                     </td>
-                    <td className={tdNum}>{formatCurrency(totalPayments)}</td>
-                    <td className={`${tdNum} text-muted-foreground font-normal print:text-black`}>
-                      —
-                    </td>
-                    <td className={`${tdNum} text-muted-foreground font-normal print:text-black`}>
-                      —
-                    </td>
-                    <td className={tdBase} />
+                    <td className={tdNum}>{formatReportCurrency(paymentTotals.current)}</td>
+                    <td className={tdNum}>{formatReportCurrency(paymentTotals.previous)}</td>
+                    <td className={tdNum}>{formatReportCurrency(paymentTotals.total)}</td>
+                    <td className={tdBase}>-</td>
                   </tr>
                 ) : null}
-
                 {report?.openingBalances ? (
-                  <>
-                    <tr className="cash-section">
-                      <td colSpan={6} className={tdBase}>
-                        Summary ({periodLabel})
-                      </td>
-                    </tr>
-                    <tr>
-                      <th colSpan={4} className={thBase}>
-                        Item
-                      </th>
-                      <th colSpan={2} className={thNum}>
-                        Amount
-                      </th>
-                    </tr>
-                    <tr>
-                      <td colSpan={4} className={`${tdBase} text-muted-foreground`}>
-                        Total opening
-                      </td>
-                      <td colSpan={2} className={tdNum}>
-                        {formatCurrency(openingTotals.total)}
-                      </td>
-                    </tr>
-                    <tr className="bg-warning/20 font-bold print:bg-amber-100">
-                      <td colSpan={4} className={tdBase}>
-                        Total payments
-                      </td>
-                      <td colSpan={2} className={tdNum}>
-                        {formatCurrency(totalPayments)}
-                      </td>
-                    </tr>
-                    <tr className="border-t-2 border-border/60 font-semibold">
-                      <td colSpan={4} className={tdBase}>
-                        Day closing balance
-                      </td>
-                      <td colSpan={2} className={tdNum}>
-                        {formatCurrency(closingBalance)}
-                      </td>
-                    </tr>
-                  </>
+                  <tr className="font-medium bg-muted/10">
+                    <td colSpan={2} className={tdBase}>
+                      Receipts balance
+                    </td>
+                    <td className={tdNum}>{formatReportCurrency(receiptsBalance.current)}</td>
+                    <td className={tdNum}>{formatReportCurrency(receiptsBalance.previous)}</td>
+                    <td className={tdNum}>{formatReportCurrency(receiptsBalance.total)}</td>
+                    <td className={tdBase}>-</td>
+                  </tr>
+                ) : null}
+                {report?.openingBalances ? (
+                  <tr className="border-t-2 border-border/60 font-semibold">
+                    <td colSpan={2} className={tdBase}>
+                      Day closing balance
+                    </td>
+                    <td className={tdNum}>{formatReportCurrency(dayClosing.current)}</td>
+                    <td className={tdNum}>{formatReportCurrency(dayClosing.previous)}</td>
+                    <td className={tdNum}>{formatReportCurrency(dayClosing.total)}</td>
+                    <td className={tdBase}>-</td>
+                  </tr>
                 ) : null}
               </tbody>
             </table>

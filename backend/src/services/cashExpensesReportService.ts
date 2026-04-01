@@ -307,94 +307,64 @@ function applyRunningPreviousAndTotal(
   return result;
 }
 
-async function fetchProjectAllTimePaymentsToDate(
+async function fetchProjectAllTimeInflowsToDate(
   projectObj: mongoose.Types.ObjectId,
-  endDate: string
+  toDate: string
 ): Promise<number> {
-  const [consumable, vendor, contractor, employee, expense, machine, nonConsumable] =
-    await Promise.all([
-      ItemLedgerEntry.aggregate<{ sum: number }>([
-        { $match: { projectId: projectObj, date: { $lte: endDate }, paidAmount: { $gt: 0 } } },
-        { $group: { _id: null, sum: { $sum: "$paidAmount" } } },
-      ]),
-      VendorPayment.aggregate<{ sum: number }>([
-        {
-          $lookup: {
-            from: Vendor.collection.name,
-            localField: "vendorId",
-            foreignField: "_id",
-            as: "v",
-          },
+  const [bankInflowsToProject, projectLedgerAdjustments] = await Promise.all([
+    BankTransaction.aggregate<{ sum: number }>([
+      {
+        $match: {
+          projectId: projectObj,
+          type: "outflow",
+          date: { $lte: toDate },
         },
-        { $unwind: "$v" },
-        { $match: { date: { $lte: endDate }, "v.projectId": projectObj } },
-        { $group: { _id: null, sum: { $sum: "$amount" } } },
-      ]),
-      ContractorPayment.aggregate<{ sum: number }>([
-        {
-          $lookup: {
-            from: Contractor.collection.name,
-            localField: "contractorId",
-            foreignField: "_id",
-            as: "c",
-          },
+      },
+      { $group: { _id: null, sum: { $sum: "$amount" } } },
+    ]),
+    ProjectBalanceAdjustment.aggregate<{ sum: number }>([
+      {
+        $match: {
+          projectId: projectObj,
+          date: { $lte: toDate },
+          amount: { $gt: 0 },
         },
-        { $unwind: "$c" },
-        { $match: { date: { $lte: endDate }, "c.projectId": projectObj } },
-        { $group: { _id: null, sum: { $sum: "$amount" } } },
-      ]),
-      EmployeePayment.aggregate<{ sum: number }>([
-        {
-          $lookup: {
-            from: Employee.collection.name,
-            localField: "employeeId",
-            foreignField: "_id",
-            as: "e",
-          },
-        },
-        { $unwind: "$e" },
-        { $match: { date: { $lte: endDate }, "e.projectId": projectObj } },
-        { $group: { _id: null, sum: { $sum: "$amount" } } },
-      ]),
-      Expense.aggregate<{ sum: number }>([
-        { $match: { projectId: projectObj, date: { $lte: endDate } } },
-        { $group: { _id: null, sum: { $sum: "$amount" } } },
-      ]),
-      MachinePayment.aggregate<{ sum: number }>([
-        {
-          $lookup: {
-            from: Machine.collection.name,
-            localField: "machineId",
-            foreignField: "_id",
-            as: "m",
-          },
-        },
-        { $unwind: "$m" },
-        { $match: { date: { $lte: endDate }, "m.projectId": projectObj } },
-        { $group: { _id: null, sum: { $sum: "$amount" } } },
-      ]),
-      NonConsumableLedgerEntry.aggregate<{ sum: number }>([
-        {
-          $match: {
-            date: { $lte: endDate },
-            eventType: "Purchase",
-            totalCost: { $gt: 0 },
-            $or: [{ projectTo: projectObj }, { projectFrom: projectObj }],
-          },
-        },
-        { $group: { _id: null, sum: { $sum: "$totalCost" } } },
-      ]),
-    ]);
+      },
+      { $group: { _id: null, sum: { $sum: "$amount" } } },
+    ]),
+  ]);
 
-  return (
-    (consumable[0]?.sum ?? 0) +
-    (vendor[0]?.sum ?? 0) +
-    (contractor[0]?.sum ?? 0) +
-    (employee[0]?.sum ?? 0) +
-    (expense[0]?.sum ?? 0) +
-    (machine[0]?.sum ?? 0) +
-    (nonConsumable[0]?.sum ?? 0)
-  );
+  return (bankInflowsToProject[0]?.sum ?? 0) + (projectLedgerAdjustments[0]?.sum ?? 0);
+}
+
+async function fetchProjectInflowsBeforeDate(
+  projectObj: mongoose.Types.ObjectId,
+  startDate: string
+): Promise<number> {
+  const [bankInflowsToProject, projectLedgerAdjustments] = await Promise.all([
+    BankTransaction.aggregate<{ sum: number }>([
+      {
+        $match: {
+          projectId: projectObj,
+          type: "outflow",
+          date: { $lt: startDate },
+        },
+      },
+      { $group: { _id: null, sum: { $sum: "$amount" } } },
+    ]),
+    ProjectBalanceAdjustment.aggregate<{ sum: number }>([
+      {
+        $match: {
+          projectId: projectObj,
+          date: { $lt: startDate },
+          amount: { $gt: 0 },
+        },
+      },
+      { $group: { _id: null, sum: { $sum: "$amount" } } },
+    ]),
+  ]);
+
+  return (bankInflowsToProject[0]?.sum ?? 0) + (projectLedgerAdjustments[0]?.sum ?? 0);
 }
 
 export async function getCashExpensesReport(
@@ -420,6 +390,8 @@ export async function getCashExpensesReport(
 
   const inRange = { $gte: startDate, $lte: endDate } as const;
 
+  const todayIso = new Date().toISOString().slice(0, 10);
+
   const [
     bankAccounts,
     bankOutflowsToProjectTxs,
@@ -431,7 +403,8 @@ export async function getCashExpensesReport(
     expenses,
     machinePayments,
     nonConsumablePayments,
-    allTimeProjectPayments,
+    allTimeProjectInflows,
+    inflowsBeforeStartDate,
   ] = await Promise.all([
     BankAccount.find({}).select("_id name").lean(),
     BankTransaction.find({ projectId: projectObj, type: "outflow", date: inRange }).lean(),
@@ -464,7 +437,8 @@ export async function getCashExpensesReport(
     })
       .populate<{ itemId: { name: string } }>("itemId", "name")
       .lean(),
-    fetchProjectAllTimePaymentsToDate(projectObj, endDate),
+    fetchProjectAllTimeInflowsToDate(projectObj, todayIso),
+    fetchProjectInflowsBeforeDate(projectObj, startDate),
   ]);
 
   const internal: InternalPayment[] = [];
@@ -656,9 +630,9 @@ export async function getCashExpensesReport(
   const projectLedgerOpening = projectLedgerClosing - projectLedgerInflows + totalPayments;
 
   const openingRowCurrent = 0;
-  const openingRowPrevious = projectLedgerOpening;
-  const openingRowTotal = openingRowCurrent + openingRowPrevious;
-  const openingRowTPayment = allTimeProjectPayments;
+  const openingRowPrevious = inflowsBeforeStartDate;
+  const openingRowTotal = openingRowPrevious;
+  const openingRowTPayment = allTimeProjectInflows;
 
   const closingBalance = projectLedgerClosing;
 

@@ -12,13 +12,28 @@ import { EditBankAccountDialog } from "@/components/dialogs/EditBankAccountDialo
 import { TablePagination } from "@/components/TablePagination";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Printer } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { deleteBankAccount } from "@/services/bankAccountService";
-import { deleteBankTransaction } from "@/services/bankTransactionService";
+import { deleteBankTransaction, listBankTransactions } from "@/services/bankTransactionService";
 import type { ApiBankAccount } from "@/services/bankAccountService";
 import type { ApiBankTransaction } from "@/services/bankTransactionService";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,6 +46,23 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const PAGE_SIZE_OPTIONS = [12, 24, 50, 100];
+const PRINT_FETCH_PAGE_SIZE = 100;
+
+function escapeHtml(text: string) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function formatDateForPrint(date: string) {
+  return date;
+}
+
+function formatAmount(value: number) {
+  return new Intl.NumberFormat("en-US").format(value);
+}
 
 export default function BankAccounts() {
   const { user } = useAuth();
@@ -60,6 +92,11 @@ export default function BankAccounts() {
   const [deleteAccount, setDeleteAccount] = useState<ApiBankAccount | null>(null);
   const [deleteTx, setDeleteTx] = useState<ApiBankTransaction | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [printAccountId, setPrintAccountId] = useState<string | null>(null);
+  const [printStartDate, setPrintStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [printEndDate, setPrintEndDate] = useState(new Date().toISOString().slice(0, 10));
+  const [printLoading, setPrintLoading] = useState(false);
 
   useEffect(() => {
     setPage(1);
@@ -109,14 +146,172 @@ export default function BankAccounts() {
     refetchTx();
   };
 
+  const handleOpenPrintDialog = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    setPrintStartDate(today);
+    setPrintEndDate(today);
+    setPrintAccountId(accounts[0]?.id ?? null);
+    setPrintDialogOpen(true);
+  };
+
+  const handlePrintBankReport = async () => {
+    if (!printAccountId) {
+      toast.error("Select a bank account");
+      return;
+    }
+    if (!printStartDate || !printEndDate) {
+      toast.error("Select date range");
+      return;
+    }
+    if (printStartDate > printEndDate) {
+      toast.error("Start date cannot be after end date");
+      return;
+    }
+
+    const selectedAccount = accounts.find((a) => a.id === printAccountId);
+    if (!selectedAccount) {
+      toast.error("Selected bank account not found");
+      return;
+    }
+
+    setPrintLoading(true);
+    try {
+      const firstPage = await listBankTransactions({
+        page: 1,
+        pageSize: PRINT_FETCH_PAGE_SIZE,
+        startDate: printStartDate,
+        endDate: printEndDate,
+      });
+
+      const allRows: ApiBankTransaction[] = [...firstPage.rows];
+      const totalPages = Math.max(1, Math.ceil(firstPage.total / PRINT_FETCH_PAGE_SIZE));
+      for (let currentPage = 2; currentPage <= totalPages; currentPage += 1) {
+        const pageResult = await listBankTransactions({
+          page: currentPage,
+          pageSize: PRINT_FETCH_PAGE_SIZE,
+          startDate: printStartDate,
+          endDate: printEndDate,
+        });
+        allRows.push(...pageResult.rows);
+      }
+
+      const accountRows = allRows
+        .filter((tx) => tx.accountId === printAccountId)
+        .sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? -1 : 1));
+
+      const projectColumns = projects.map((project) => ({ id: project.id, name: project.name }));
+      const today = new Date().toISOString().slice(0, 10);
+      const openingRowCells = projectColumns.map(() => `<td class="text-center">-</td>`).join("");
+
+      const txRowsHtml = accountRows
+        .map((tx) => {
+          const isInflow = tx.type === "inflow";
+          const isProjectOutflow = !isInflow && Boolean(tx.projectId);
+          const particularsParts = isInflow
+            ? [tx.source, tx.remarks, tx.referenceId]
+            : isProjectOutflow
+              ? [tx.referenceId, tx.remarks]
+              : [tx.destination, tx.referenceId, tx.remarks];
+          const particulars = particularsParts.filter(Boolean).join(" + ") || "-";
+          const receiveCell = isInflow ? formatAmount(tx.amount) : "-";
+          const projectCells = projectColumns
+            .map((project) => {
+              if (!isInflow && tx.projectId === project.id) {
+                return `<td class="text-right amount">${formatAmount(tx.amount)}</td>`;
+              }
+              return `<td class="text-center">-</td>`;
+            })
+            .join("");
+
+          return `
+            <tr>
+              <td>${escapeHtml(formatDateForPrint(tx.date))}</td>
+              <td>${escapeHtml(particulars)}</td>
+              <td class="text-right amount">${escapeHtml(receiveCell)}</td>
+              ${projectCells}
+            </tr>
+          `;
+        })
+        .join("");
+
+      const projectHeaderHtml = projectColumns.map((project) => `<th>${escapeHtml(project.name)}</th>`).join("");
+      const tableRowsHtml = `
+        <tr>
+          <td>${escapeHtml(today)}</td>
+          <td>Opening Balance</td>
+          <td class="text-right amount">${formatAmount(selectedAccount.currentBalance)}</td>
+          ${openingRowCells}
+        </tr>
+        ${txRowsHtml}
+      `;
+
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) {
+        toast.error("Popup blocked. Please allow popups to print.");
+        return;
+      }
+
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>${escapeHtml(selectedAccount.name)} Bank Report</title>
+          <style>
+            body { font-family: Arial, Helvetica, sans-serif; color: #000; padding: 20px; }
+            .header { text-align: center; margin-bottom: 12px; }
+            .header h1 { font-size: 18px; margin: 0 0 6px; }
+            .header p { margin: 2px 0; font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #000; padding: 6px 8px; font-size: 12px; vertical-align: top; }
+            th { background: #efefef; text-transform: uppercase; }
+            td.amount { white-space: nowrap; }
+            .text-right { text-align: right; }
+            .text-center { text-align: center; }
+            @media print { body { padding: 0; } }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>${escapeHtml(selectedAccount.name)} (${escapeHtml(selectedAccount.accountNumber || "Account")})</h1>
+            <p>Date Range: ${escapeHtml(printStartDate)} to ${escapeHtml(printEndDate)}</p>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Particulars</th>
+                <th>Receive</th>
+                ${projectHeaderHtml}
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRowsHtml}
+            </tbody>
+          </table>
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.print();
+      setPrintDialogOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to prepare print report");
+    } finally {
+      setPrintLoading(false);
+    }
+  };
+
   return (
     <Layout>
       <PageHeader
         title="Bank & Accounts"
         subtitle="Company-level bank account management"
-        printTargetId="bank-content"
         actions={
           <>
+            <Button variant="outline" size="sm" onClick={handleOpenPrintDialog}>
+              <Printer className="h-4 w-4 mr-1" />
+              Print
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setAddTxOpen(true)} disabled={!isSuperAdmin}>
               Add Transaction
             </Button>
@@ -140,6 +335,61 @@ export default function BankAccounts() {
         account={editAccount}
         onSuccess={handleSuccess}
       />
+      <Dialog open={printDialogOpen} onOpenChange={setPrintDialogOpen}>
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Print Bank Report</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-xs">Bank Account</Label>
+              <Select
+                value={printAccountId ?? ""}
+                onValueChange={(value) => setPrintAccountId(value)}
+              >
+                <SelectTrigger className="mt-1 h-9">
+                  <SelectValue placeholder="Select account" />
+                </SelectTrigger>
+                <SelectContent>
+                  {accounts.map((acc) => (
+                    <SelectItem key={acc.id} value={acc.id}>
+                      {acc.name} ({acc.accountNumber || "—"})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <Label className="text-xs">Start Date</Label>
+                <Input
+                  type="date"
+                  value={printStartDate}
+                  onChange={(e) => setPrintStartDate(e.target.value)}
+                  className="mt-1 h-9"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">End Date</Label>
+                <Input
+                  type="date"
+                  value={printEndDate}
+                  onChange={(e) => setPrintEndDate(e.target.value)}
+                  className="mt-1 h-9"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setPrintDialogOpen(false)} disabled={printLoading}>
+              Cancel
+            </Button>
+            <Button variant="warning" size="sm" onClick={handlePrintBankReport} disabled={printLoading}>
+              {printLoading ? "Preparing..." : "Print"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div id="bank-content" className="space-y-6">
         {/* Account Cards */}

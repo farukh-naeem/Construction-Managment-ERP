@@ -33,7 +33,7 @@ const DEFAULT_CORS_ORIGINS = [
   "http://localhost:4173",
   "http://127.0.0.1:4173",
   "http://localhost:8080",
-  "https://construction-managment-erp.vercel.app",
+  "https://construction-managment-erp-2ekl.vercel.app",
 ];
 
 const envCorsOrigins = (process.env.CORS_ORIGINS ?? "")

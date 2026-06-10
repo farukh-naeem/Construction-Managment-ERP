@@ -19,10 +19,12 @@ export async function list(req: AuthRequest, res: Response) {
     const category = typeof req.query.category === "string" ? req.query.category : undefined;
     const page = req.query.page ? Number(req.query.page) : undefined;
     const pageSize = req.query.pageSize ? Number(req.query.pageSize) : undefined;
+    const startDate = typeof req.query.startDate === "string" ? req.query.startDate : undefined;
+    const endDate = typeof req.query.endDate === "string" ? req.query.endDate : undefined;
 
     const result = await listExpenses(
       { userId: actor.userId, role: actor.role },
-      { projectId, search, category, page, pageSize }
+      { projectId, search, category, page, pageSize, startDate, endDate }
     );
     res.json(result);
   } catch (err) {

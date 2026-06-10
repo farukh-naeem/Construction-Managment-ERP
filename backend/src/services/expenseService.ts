@@ -39,12 +39,15 @@ export interface ListExpensesParams {
   category?: string;
   page?: number;
   pageSize?: number;
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface ListExpensesResult {
   expenses: ExpensePayload[];
   total: number;
   totalAmount: number;
+  previousTotal?: number;
 }
 
 const DEFAULT_PAGE_SIZE = 12;
@@ -106,16 +109,35 @@ export async function listExpenses(
   if (params.search?.trim()) {
     filter.description = { $regex: params.search.trim(), $options: "i" };
   }
+  if (params.startDate || params.endDate) {
+    const dateFilter: Record<string, string> = {};
+    if (params.startDate) dateFilter.$gte = params.startDate;
+    if (params.endDate) dateFilter.$lte = params.endDate;
+    filter.date = dateFilter;
+  }
+
+  const sortDir = params.startDate ? 1 : -1;
 
   const [docs, total, aggResult] = await Promise.all([
-    Expense.find(filter).sort({ date: -1, createdAt: -1 }).skip(skip).limit(pageSize).lean(),
+    Expense.find(filter).sort({ date: sortDir, createdAt: sortDir }).skip(skip).limit(pageSize).lean(),
     Expense.countDocuments(filter),
     Expense.aggregate<{ totalAmount: number }>([{ $match: filter }, { $group: { _id: null, totalAmount: { $sum: "$amount" } } }]),
   ]);
 
   const expenses = docs.map(toPayload);
   const totalAmount = aggResult[0]?.totalAmount ?? 0;
-  return { expenses, total, totalAmount };
+
+  let previousTotal: number | undefined;
+  if (params.startDate && projectId && mongoose.Types.ObjectId.isValid(projectId)) {
+    const prevFilter: Record<string, unknown> = { ...filter, date: { $lt: params.startDate } };
+    const prevAgg = await Expense.aggregate<{ sum: number }>([
+      { $match: prevFilter },
+      { $group: { _id: null, sum: { $sum: "$amount" } } },
+    ]);
+    previousTotal = prevAgg[0]?.sum ?? 0;
+  }
+
+  return { expenses, total, totalAmount, previousTotal };
 }
 
 /** Get distinct category names (for filter combobox). Site Manager: uses assigned project. Admin/Super Admin: projectId param (all projects if omitted). */

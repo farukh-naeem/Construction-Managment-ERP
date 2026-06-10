@@ -15,6 +15,8 @@ import { Vendor } from "../models/Vendor.js";
 import { Contractor } from "../models/Contractor.js";
 import { Employee } from "../models/Employee.js";
 import { Machine } from "../models/Machine.js";
+import { ConsumableItem } from "../models/ConsumableItem.js";
+import { NonConsumableItem } from "../models/NonConsumableItem.js";
 
 export type CashExpensesEntityType =
   | "Consumable"
@@ -36,6 +38,24 @@ export interface CashExpensesReportPayment {
   totalAmount: number;
   remarks: string;
   sourceId?: string;
+  /** The entity's id (hex for db entities; category string for Expense; "ALL" for Salary). */
+  entityId: string;
+}
+
+export interface CashExpensesLedgerEntry {
+  id: string;
+  date: string;
+  name: string;
+  remarks: string;
+  amount: number;
+}
+
+export interface CashExpensesEntityLedger {
+  entityName: string;
+  entityType: CashExpensesEntityType;
+  previousAmount: number;
+  entries: CashExpensesLedgerEntry[];
+  currentTotal: number;
 }
 
 export interface CashExpensesReportBankAccount {
@@ -200,16 +220,12 @@ async function fetchPriorPaymentTotals(
   if (employeeIds.length) {
     jobs.push(
       (async () => {
-        const rows = await EmployeePayment.aggregate<{ _id: mongoose.Types.ObjectId; sum: number }>([
-          { $match: { employeeId: { $in: employeeIds }, date: { $lt: startDate } } },
-          { $lookup: { from: employeesColl, localField: "employeeId", foreignField: "_id", as: "e" } },
-          { $unwind: "$e" },
-          { $match: { "e.projectId": projectObj } },
-          { $group: { _id: "$employeeId", sum: { $sum: "$amount" } } },
+        const allProjectEmployeeIds = await Employee.find({ projectId: projectObj }).distinct("_id");
+        const rows = await EmployeePayment.aggregate<{ sum: number }>([
+          { $match: { employeeId: { $in: allProjectEmployeeIds }, date: { $lt: startDate } } },
+          { $group: { _id: null, sum: { $sum: "$amount" } } },
         ]);
-        for (const r of rows) {
-          out.set(`Salary:${r._id.toString()}`, r.sum);
-        }
+        out.set("Salary:ALL", rows[0]?.sum ?? 0);
       })()
     );
   }
@@ -277,6 +293,32 @@ async function fetchPriorPaymentTotals(
   return out;
 }
 
+/** Aggregate many payments into one InternalPayment per entity. Remarks are dropped. */
+function pushAggregatedByEntity(
+  internal: InternalPayment[],
+  entries: { id: string; name?: string; amount: number }[],
+  entityType: CashExpensesEntityType,
+  fallbackName: string
+) {
+  const byEntity = new Map<string, { name: string; total: number }>();
+  for (const e of entries) {
+    if (!e.id) continue;
+    const cur = byEntity.get(e.id);
+    if (cur) cur.total += e.amount;
+    else byEntity.set(e.id, { name: e.name ?? fallbackName, total: e.amount });
+  }
+  for (const [id, { name, total }] of byEntity) {
+    internal.push({
+      entityName: name,
+      entityType,
+      amount: total,
+      remarks: "",
+      sourceId: `${entityType}-${id}`,
+      entityKey: `${entityType}:${id}`,
+    });
+  }
+}
+
 function applyRunningPreviousAndTotal(
   rows: InternalPayment[],
   priorTotals: Map<string, number>
@@ -302,6 +344,7 @@ function applyRunningPreviousAndTotal(
       totalAmount,
       remarks: row.remarks,
       sourceId: row.sourceId,
+      entityId: row.entityKey.slice(row.entityKey.indexOf(":") + 1),
     });
   }
   return result;
@@ -443,97 +486,72 @@ export async function getCashExpensesReport(
 
   const internal: InternalPayment[] = [];
 
-  for (const row of consumablePayments) {
-    const { id: itemId, name: itemName } = populatedIdName(row.itemId);
-    if (!itemId) continue;
-    internal.push({
-      entityName: itemName ?? "Consumable",
-      entityType: "Consumable",
-      amount: row.paidAmount,
-      remarks: joinRemarks(row.referenceId, row.remarks),
-      sourceId: row._id.toString(),
-      entityKey: `Consumable:${itemId}`,
-    });
-  }
+  pushAggregatedByEntity(
+    internal,
+    consumablePayments.map((row) => ({ ...populatedIdName(row.itemId), amount: row.paidAmount })),
+    "Consumable",
+    "Consumable"
+  );
 
-  for (const row of vendorPayments) {
-    const { id: vid, name: vName } = populatedIdName(row.vendorId);
-    if (!vid) continue;
-    internal.push({
-      entityName: vName ?? "Vendor",
-      entityType: "Vendor",
-      amount: row.amount,
-      remarks: joinRemarks(row.referenceId, row.remarks),
-      sourceId: row._id.toString(),
-      entityKey: `Vendor:${vid}`,
-    });
-  }
+  pushAggregatedByEntity(
+    internal,
+    vendorPayments.map((row) => ({ ...populatedIdName(row.vendorId), amount: row.amount })),
+    "Vendor",
+    "Vendor"
+  );
 
-  for (const row of contractorPayments) {
-    const { id: cid, name: cName } = populatedIdName(row.contractorId);
-    if (!cid) continue;
-    internal.push({
-      entityName: cName ?? "Contractor",
-      entityType: "Contractor",
-      amount: row.amount,
-      remarks: joinRemarks((row as { referenceId?: string }).referenceId),
-      sourceId: row._id.toString(),
-      entityKey: `Contractor:${cid}`,
-    });
-  }
+  pushAggregatedByEntity(
+    internal,
+    contractorPayments.map((row) => ({ ...populatedIdName(row.contractorId), amount: row.amount })),
+    "Contractor",
+    "Contractor"
+  );
 
-  for (const row of employeePayments) {
-    const { id: eid, name: eName } = populatedIdName(row.employeeId);
-    if (!eid) continue;
+  if (employeePayments.length > 0) {
+    const totalEmployeeAmount = employeePayments.reduce((s, r) => s + r.amount, 0);
     internal.push({
-      entityName: eName ?? "Employee",
+      entityName: "Employees",
       entityType: "Salary",
-      amount: row.amount,
-      remarks: joinRemarks(row.remarks),
-      sourceId: row._id.toString(),
-      entityKey: `Salary:${eid}`,
+      amount: totalEmployeeAmount,
+      remarks: "",
+      sourceId: "salary-all",
+      entityKey: "Salary:ALL",
     });
   }
 
+  const expenseByCat = new Map<string, { name: string; total: number }>();
   for (const row of expenses) {
     const cat = row.category.trim();
+    const e = expenseByCat.get(cat);
+    if (e) e.total += row.amount;
+    else expenseByCat.set(cat, { name: row.category || row.description, total: row.amount });
+  }
+  for (const [cat, { name, total }] of expenseByCat) {
     internal.push({
-      entityName: row.category || row.description,
+      entityName: name,
       entityType: "Expense",
-      amount: row.amount,
-      remarks: row.description || "",
-      sourceId: row._id.toString(),
+      amount: total,
+      remarks: "",
+      sourceId: `expense-cat-${cat}`,
       entityKey: `Expense:${cat}`,
     });
   }
 
-  for (const row of machinePayments) {
-    const { id: mid, name: mName } = populatedIdName(row.machineId);
-    if (!mid) continue;
-    internal.push({
-      entityName: mName ?? "Machinery",
-      entityType: "Machinery",
-      amount: row.amount,
-      remarks: joinRemarks(row.referenceId),
-      sourceId: row._id.toString(),
-      entityKey: `Machinery:${mid}`,
-    });
-  }
+  pushAggregatedByEntity(
+    internal,
+    machinePayments.map((row) => ({ ...populatedIdName(row.machineId), amount: row.amount })),
+    "Machinery",
+    "Machinery"
+  );
 
-  for (const row of nonConsumablePayments) {
-    const cost = row.totalCost ?? 0;
-    if (cost <= 0) continue;
-    const { id: nid, name: nName } = populatedIdName(row.itemId);
-    if (!nid) continue;
-    internal.push({
-      entityName: nName ?? "Non-Consumable",
-      entityType: "NonConsumable",
-      amount: cost,
-      remarks: joinRemarks(row.remarks),
-      sourceId: row._id.toString(),
-      entityKey: `NonConsumable:${nid}`,
-    });
-  }
+  pushAggregatedByEntity(
+    internal,
+    nonConsumablePayments
+      .filter((row) => (row.totalCost ?? 0) > 0)
+      .map((row) => ({ ...populatedIdName(row.itemId), amount: row.totalCost ?? 0 })),
+    "NonConsumable",
+    "Non-Consumable"
+  );
 
   const uniqStrings = (xs: string[]) => [...new Set(xs)];
   const uniqObjectIds = (hexIds: string[]) => {
@@ -560,9 +578,7 @@ export async function getCashExpensesReport(
           contractorIds: uniqObjectIds(
             internal.filter((r) => r.entityType === "Contractor").map((r) => r.entityKey.split(":")[1])
           ),
-          employeeIds: uniqObjectIds(
-            internal.filter((r) => r.entityType === "Salary").map((r) => r.entityKey.split(":")[1])
-          ),
+          employeeIds: internal.some((r) => r.entityType === "Salary") ? [projectObj] : [],
           expenseCategories: uniqStrings(
             internal.filter((r) => r.entityType === "Expense").map((r) => r.entityKey.slice("Expense:".length))
           ),
@@ -655,4 +671,248 @@ export async function getCashExpensesReport(
     totalPayments,
     closingBalance,
   };
+}
+
+export async function getCashExpensesEntityLedger(
+  actor: { userId: string; role: string },
+  projectId: string,
+  entityType: CashExpensesEntityType,
+  entityId: string,
+  startDate: string,
+  endDate: string
+): Promise<CashExpensesEntityLedger> {
+  if (!mongoose.Types.ObjectId.isValid(projectId)) throw new Error("Invalid project ID");
+  const projectObj = new mongoose.Types.ObjectId(projectId);
+
+  const allowed = await canAccessProject(actor, projectId);
+  if (!allowed) throw new Error("Project not found or access denied");
+
+  const inRange = { $gte: startDate, $lte: endDate } as const;
+
+  const vendorsColl = Vendor.collection.name;
+  const contractorsColl = Contractor.collection.name;
+  const machinesColl = Machine.collection.name;
+
+  if (entityType === "Consumable") {
+    if (!mongoose.Types.ObjectId.isValid(entityId)) throw new Error("Invalid entity ID");
+    const itemObj = new mongoose.Types.ObjectId(entityId);
+    const [item, docs, prevAgg] = await Promise.all([
+      ConsumableItem.findById(itemObj).select("name").lean(),
+      ItemLedgerEntry.find({ projectId: projectObj, itemId: itemObj, date: inRange, paidAmount: { $gt: 0 } })
+        .sort({ date: 1, createdAt: 1 })
+        .lean(),
+      ItemLedgerEntry.aggregate<{ sum: number }>([
+        { $match: { projectId: projectObj, itemId: itemObj, date: { $lt: startDate }, paidAmount: { $gt: 0 } } },
+        { $group: { _id: null, sum: { $sum: "$paidAmount" } } },
+      ]),
+    ]);
+    const entries: CashExpensesLedgerEntry[] = docs.map((d) => ({
+      id: d._id.toString(),
+      date: d.date,
+      name: "",
+      remarks: joinRemarks(d.referenceId, d.remarks),
+      amount: d.paidAmount,
+    }));
+    return {
+      entityName: item?.name ?? "Consumable",
+      entityType,
+      previousAmount: prevAgg[0]?.sum ?? 0,
+      entries,
+      currentTotal: entries.reduce((s, e) => s + e.amount, 0),
+    };
+  }
+
+  if (entityType === "Vendor") {
+    if (!mongoose.Types.ObjectId.isValid(entityId)) throw new Error("Invalid entity ID");
+    const vendorObj = new mongoose.Types.ObjectId(entityId);
+    const [vendor, docs, prevAgg] = await Promise.all([
+      Vendor.findById(vendorObj).select("name").lean(),
+      VendorPayment.find({ vendorId: vendorObj, date: inRange }).sort({ date: 1, createdAt: 1 }).lean().then((rows) =>
+        rows.filter((r) => {
+          const vid = (r as unknown as { vendorId: { projectId?: mongoose.Types.ObjectId } }).vendorId;
+          return true; // already filtered by vendorId which belongs to a project
+        })
+      ),
+      VendorPayment.aggregate<{ sum: number }>([
+        { $match: { vendorId: vendorObj, date: { $lt: startDate } } },
+        { $lookup: { from: vendorsColl, localField: "vendorId", foreignField: "_id", as: "v" } },
+        { $unwind: "$v" },
+        { $match: { "v.projectId": projectObj } },
+        { $group: { _id: null, sum: { $sum: "$amount" } } },
+      ]),
+    ]);
+    const entries: CashExpensesLedgerEntry[] = docs.map((d) => ({
+      id: d._id.toString(),
+      date: d.date,
+      name: "",
+      remarks: joinRemarks(d.referenceId, d.remarks),
+      amount: d.amount,
+    }));
+    return {
+      entityName: vendor?.name ?? "Vendor",
+      entityType,
+      previousAmount: prevAgg[0]?.sum ?? 0,
+      entries,
+      currentTotal: entries.reduce((s, e) => s + e.amount, 0),
+    };
+  }
+
+  if (entityType === "Contractor") {
+    if (!mongoose.Types.ObjectId.isValid(entityId)) throw new Error("Invalid entity ID");
+    const contractorObj = new mongoose.Types.ObjectId(entityId);
+    const [contractor, docs, prevAgg] = await Promise.all([
+      Contractor.findById(contractorObj).select("name").lean(),
+      ContractorPayment.find({ contractorId: contractorObj, date: inRange }).sort({ date: 1, createdAt: 1 }).lean(),
+      ContractorPayment.aggregate<{ sum: number }>([
+        { $match: { contractorId: contractorObj, date: { $lt: startDate } } },
+        { $lookup: { from: contractorsColl, localField: "contractorId", foreignField: "_id", as: "c" } },
+        { $unwind: "$c" },
+        { $match: { "c.projectId": projectObj } },
+        { $group: { _id: null, sum: { $sum: "$amount" } } },
+      ]),
+    ]);
+    const entries: CashExpensesLedgerEntry[] = docs.map((d) => ({
+      id: d._id.toString(),
+      date: d.date,
+      name: "",
+      remarks: joinRemarks((d as unknown as { referenceId?: string }).referenceId),
+      amount: d.amount,
+    }));
+    return {
+      entityName: contractor?.name ?? "Contractor",
+      entityType,
+      previousAmount: prevAgg[0]?.sum ?? 0,
+      entries,
+      currentTotal: entries.reduce((s, e) => s + e.amount, 0),
+    };
+  }
+
+  if (entityType === "Machinery") {
+    if (!mongoose.Types.ObjectId.isValid(entityId)) throw new Error("Invalid entity ID");
+    const machineObj = new mongoose.Types.ObjectId(entityId);
+    const [machine, docs, prevAgg] = await Promise.all([
+      Machine.findById(machineObj).select("name").lean(),
+      MachinePayment.find({ machineId: machineObj, date: inRange }).sort({ date: 1, createdAt: 1 }).lean(),
+      MachinePayment.aggregate<{ sum: number }>([
+        { $match: { machineId: machineObj, date: { $lt: startDate } } },
+        { $lookup: { from: machinesColl, localField: "machineId", foreignField: "_id", as: "m" } },
+        { $unwind: "$m" },
+        { $match: { "m.projectId": projectObj } },
+        { $group: { _id: null, sum: { $sum: "$amount" } } },
+      ]),
+    ]);
+    const entries: CashExpensesLedgerEntry[] = docs.map((d) => ({
+      id: d._id.toString(),
+      date: d.date,
+      name: "",
+      remarks: joinRemarks(d.referenceId),
+      amount: d.amount,
+    }));
+    return {
+      entityName: machine?.name ?? "Machinery",
+      entityType,
+      previousAmount: prevAgg[0]?.sum ?? 0,
+      entries,
+      currentTotal: entries.reduce((s, e) => s + e.amount, 0),
+    };
+  }
+
+  if (entityType === "NonConsumable") {
+    if (!mongoose.Types.ObjectId.isValid(entityId)) throw new Error("Invalid entity ID");
+    const ncItemObj = new mongoose.Types.ObjectId(entityId);
+    const [ncItem, docs, prevAgg] = await Promise.all([
+      NonConsumableItem.findById(ncItemObj).select("name").lean(),
+      NonConsumableLedgerEntry.find({
+        itemId: ncItemObj,
+        date: inRange,
+        eventType: "Purchase",
+        totalCost: { $gt: 0 },
+        $or: [{ projectTo: projectObj }, { projectFrom: projectObj }],
+      }).sort({ date: 1, createdAt: 1 }).lean(),
+      NonConsumableLedgerEntry.aggregate<{ sum: number }>([
+        {
+          $match: {
+            itemId: ncItemObj,
+            date: { $lt: startDate },
+            eventType: "Purchase",
+            totalCost: { $gt: 0 },
+            $or: [{ projectTo: projectObj }, { projectFrom: projectObj }],
+          },
+        },
+        { $group: { _id: null, sum: { $sum: "$totalCost" } } },
+      ]),
+    ]);
+    const entries: CashExpensesLedgerEntry[] = docs.map((d) => ({
+      id: d._id.toString(),
+      date: d.date,
+      name: "",
+      remarks: d.remarks ?? "",
+      amount: d.totalCost ?? 0,
+    }));
+    return {
+      entityName: ncItem?.name ?? "Non-Consumable",
+      entityType,
+      previousAmount: prevAgg[0]?.sum ?? 0,
+      entries,
+      currentTotal: entries.reduce((s, e) => s + e.amount, 0),
+    };
+  }
+
+  if (entityType === "Expense") {
+    const category = entityId;
+    const [docs, prevAgg] = await Promise.all([
+      Expense.find({ projectId: projectObj, category, date: inRange }).sort({ date: 1, createdAt: 1 }).lean(),
+      Expense.aggregate<{ sum: number }>([
+        { $match: { projectId: projectObj, category, date: { $lt: startDate } } },
+        { $group: { _id: null, sum: { $sum: "$amount" } } },
+      ]),
+    ]);
+    const entries: CashExpensesLedgerEntry[] = docs.map((d) => ({
+      id: d._id.toString(),
+      date: d.date,
+      name: "",
+      remarks: d.description,
+      amount: d.amount,
+    }));
+    return {
+      entityName: category,
+      entityType,
+      previousAmount: prevAgg[0]?.sum ?? 0,
+      entries,
+      currentTotal: entries.reduce((s, e) => s + e.amount, 0),
+    };
+  }
+
+  if (entityType === "Salary") {
+    const allProjectEmployeeIds = await Employee.find({ projectId: projectObj }).distinct("_id");
+    const [docs, prevAgg] = await Promise.all([
+      EmployeePayment.find({ employeeId: { $in: allProjectEmployeeIds }, date: inRange })
+        .populate<{ employeeId: { name: string } }>("employeeId", "name")
+        .sort({ date: 1, createdAt: 1 })
+        .lean(),
+      EmployeePayment.aggregate<{ sum: number }>([
+        { $match: { employeeId: { $in: allProjectEmployeeIds }, date: { $lt: startDate } } },
+        { $group: { _id: null, sum: { $sum: "$amount" } } },
+      ]),
+    ]);
+    const entries: CashExpensesLedgerEntry[] = docs.map((d) => {
+      const emp = populatedIdName(d.employeeId);
+      return {
+        id: d._id.toString(),
+        date: d.date,
+        name: emp.name ?? "Employee",
+        remarks: (d as unknown as { remarks?: string }).remarks ?? "",
+        amount: d.amount,
+      };
+    });
+    return {
+      entityName: "Employees",
+      entityType,
+      previousAmount: prevAgg[0]?.sum ?? 0,
+      entries,
+      currentTotal: entries.reduce((s, e) => s + e.amount, 0),
+    };
+  }
+
+  throw new Error(`Unsupported entity type: ${entityType}`);
 }

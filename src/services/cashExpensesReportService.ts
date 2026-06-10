@@ -21,6 +21,23 @@ export interface CashExpensesReportPayment {
   totalAmount: number;
   remarks: string;
   sourceId?: string;
+  entityId: string;
+}
+
+export interface CashExpensesLedgerEntry {
+  id: string;
+  date: string;
+  name: string;
+  remarks: string;
+  amount: number;
+}
+
+export interface CashExpensesEntityLedger {
+  entityName: string;
+  entityType: CashExpensesEntityType;
+  previousAmount: number;
+  entries: CashExpensesLedgerEntry[];
+  currentTotal: number;
 }
 
 export interface CashExpensesReportOpeningBalances {
@@ -61,6 +78,19 @@ export interface CashExpensesReport {
   closingBalance: number;
   receipts?: CashExpensesReportReceipt[];
   totalReceipts?: number;
+}
+
+export async function getCashExpensesEntityLedger(
+  projectId: string,
+  entityType: CashExpensesEntityType,
+  entityId: string,
+  startDate: string,
+  endDate: string
+): Promise<CashExpensesEntityLedger> {
+  const params = new URLSearchParams({ entityType, entityId, startDate, endDate });
+  return api<CashExpensesEntityLedger>(
+    `/api/projects/${projectId}/cash-expenses-report/ledger?${params.toString()}`
+  );
 }
 
 export async function getCashExpensesReport(

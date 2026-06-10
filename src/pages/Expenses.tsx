@@ -40,6 +40,17 @@ import type { ApiExpense } from "@/services/expensesService";
 const DEFAULT_PAGE_SIZE = 12;
 const PAGE_SIZE_OPTIONS = [12, 24, 50, 100];
 
+const EXPENSES_PRINT_CSS = `
+  .expenses-prev-header {
+    display: block !important;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 6px 0 10px;
+    border-bottom: 1px solid #000;
+    margin-bottom: 6px;
+  }
+`;
+
 export default function Expenses() {
   const { user: currentUser } = useAuth();
   const { projects } = useProjects();
@@ -53,15 +64,23 @@ export default function Expenses() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
 
   const effectiveProjectId = isSiteManager ? assignedProjectId : (selectedProjectId || null);
 
-  const { expenses, total, totalAmount, loading, error, refetch } = useExpenses({
+  const dateRangeActive = !!startDate;
+  const showPrevCard = dateRangeActive;
+  const showTotalCol = dateRangeActive;
+
+  const { expenses, total, totalAmount, previousTotal, loading, error, refetch } = useExpenses({
     projectId: effectiveProjectId,
     search: searchQuery,
     category: categoryFilter,
     page,
-    pageSize,
+    pageSize: dateRangeActive ? 500 : pageSize,
+    startDate: startDate || undefined,
+    endDate: endDate || undefined,
   });
 
   const [categoriesRefreshKey, setCategoriesRefreshKey] = useState(0);
@@ -121,11 +140,22 @@ export default function Expenses() {
   const startIndexOneBased = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const endIndex = Math.min(page * pageSize, total);
 
+  const runningTotals = useMemo(() => {
+    let acc = previousTotal;
+    return expenses.map((e) => { acc += e.amount; return acc; });
+  }, [expenses, previousTotal]);
+
   const canAdd = !!effectiveProjectId;
 
   useEffect(() => {
     setPage(1);
-  }, [searchQuery, categoryFilter]);
+  }, [searchQuery, categoryFilter, startDate, endDate]);
+
+  useEffect(() => {
+    if (endDate && startDate && endDate < startDate) {
+      setEndDate(startDate);
+    }
+  }, [startDate, endDate]);
 
   const handlePageSizeChange = (size: number) => {
     setPageSize(size);
@@ -139,6 +169,7 @@ export default function Expenses() {
         subtitle={subtitle}
         printProjectName={selectedProjectName}
         printTargetId="expenses-table"
+        printOptions={{ additionalPrintCss: EXPENSES_PRINT_CSS }}
         actions={
           <Button
             variant="warning"
@@ -223,6 +254,25 @@ export default function Expenses() {
             searchPlaceholder="Search category..."
           />
         </div>
+        <div className="min-w-[180px]">
+          <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Start date</Label>
+          <Input
+            type="date"
+            className="mt-1"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+        </div>
+        <div className="min-w-[180px]">
+          <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">End date</Label>
+          <Input
+            type="date"
+            className="mt-1"
+            value={endDate}
+            min={startDate}
+            onChange={(e) => setEndDate(e.target.value)}
+          />
+        </div>
       </div>
 
       {!isSiteManager && !effectiveProjectId && (
@@ -239,11 +289,19 @@ export default function Expenses() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-4">
           <StatCard label="Total Expense" value={formatCurrency(totalAmount)} icon={<Receipt className="h-4 w-4" />} variant="warning" title={formatCurrency(totalAmount)} />
           <StatCard label="Total Records" value={String(total)} variant="default" />
+          {showPrevCard && (
+            <StatCard label="Previous (before range)" value={formatCurrency(previousTotal)} variant="default" title={formatCurrency(previousTotal)} />
+          )}
         </div>
       )}
 
       {effectiveProjectId && !(isSiteManager && !assignedProjectId) ? (
         <div id="expenses-table" className="border-2 border-border">
+          {showPrevCard && (
+            <div className="expenses-prev-header hidden">
+              Previous (before {startDate}){categoryFilter !== "all" ? ` — ${categoryFilter}` : ""}: {formatCurrency(previousTotal)}
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-base">
               <thead>
@@ -253,30 +311,34 @@ export default function Expenses() {
                   <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Category</th>
                   <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Mode</th>
                   <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Amount</th>
+                  {showTotalCol && <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Total</th>}
                   {canEditDelete && <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider print-hidden">Actions</th>}
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={canEditDelete ? 6 : 5} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={(canEditDelete ? 6 : 5) + (showTotalCol ? 1 : 0)} className="px-4 py-8 text-center text-muted-foreground">
                       Loading…
                     </td>
                   </tr>
                 ) : expenses.length === 0 ? (
                   <tr>
-                    <td colSpan={canEditDelete ? 6 : 5} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={(canEditDelete ? 6 : 5) + (showTotalCol ? 1 : 0)} className="px-4 py-8 text-center text-muted-foreground">
                       No expenses match your filters.
                     </td>
                   </tr>
                 ) : (
-                  expenses.map((exp) => (
+                  expenses.map((exp, i) => (
                     <tr key={exp.id} className="border-b border-border hover:bg-accent/50 transition-colors">
                       <td className="px-4 py-3 text-sm">{exp.date}</td>
                       <td className="px-4 py-3 font-bold text-sm">{exp.description}</td>
                       <td className="px-4 py-3 text-sm uppercase text-muted-foreground">{exp.category}</td>
                       <td className="px-4 py-3 text-sm">{exp.paymentMode}</td>
                       <td className="px-4 py-3 text-right font-mono text-sm font-bold">{formatCurrency(exp.amount)}</td>
+                      {showTotalCol && (
+                        <td className="px-4 py-3 text-right font-mono text-sm font-bold">{formatCurrency(runningTotals[i])}</td>
+                      )}
                       {canEditDelete && (
                         <td className="px-4 py-3 text-right print-hidden">
                           <div className="flex justify-end gap-1">
@@ -295,7 +357,7 @@ export default function Expenses() {
               </tbody>
             </table>
           </div>
-          {!loading && total > 0 && (
+          {!loading && total > 0 && !dateRangeActive && (
             <div className="print-hidden">
               <TablePagination
                 pageSize={pageSize}

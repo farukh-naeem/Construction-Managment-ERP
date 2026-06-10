@@ -12,12 +12,15 @@ export interface UseExpensesParams {
   category?: string;
   page?: number;
   pageSize?: number;
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface UseExpensesResult {
   expenses: ApiExpense[];
   total: number;
   totalAmount: number;
+  previousTotal: number;
   loading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -30,11 +33,14 @@ export function useExpenses(params: UseExpensesParams = {}): UseExpensesResult {
     category = "all",
     page = 1,
     pageSize = 12,
+    startDate,
+    endDate,
   } = params;
 
   const [expenses, setExpenses] = useState<ApiExpense[]>([]);
   const [total, setTotal] = useState(0);
   const [totalAmount, setTotalAmount] = useState(0);
+  const [previousTotal, setPreviousTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,23 +54,26 @@ export function useExpenses(params: UseExpensesParams = {}): UseExpensesResult {
         category: category === "all" ? undefined : category,
         page,
         pageSize,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
       };
       const result = await listExpenses(listParams);
       setExpenses(result.expenses);
       setTotal(result.total);
       setTotalAmount(result.totalAmount ?? 0);
+      setPreviousTotal(result.previousTotal ?? 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load expenses");
     } finally {
       setLoading(false);
     }
-  }, [projectId, search, category, page, pageSize]);
+  }, [projectId, search, category, page, pageSize, startDate, endDate]);
 
   useEffect(() => {
     refetch();
   }, [refetch]);
 
-  return { expenses, total, totalAmount, loading, error, refetch };
+  return { expenses, total, totalAmount, previousTotal, loading, error, refetch };
 }
 
 /** refreshTrigger: increment to force refetch (e.g. after add/edit expense with new category). */

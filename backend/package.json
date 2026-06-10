@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "seed": "tsx src/seed.ts",
+    "seed:users": "tsx src/seed_users.ts",
     "test:integrity": "tsx src/test/integrity.e2e.ts"
   },
   "dependencies": {

@@ -22,12 +22,15 @@ export interface ListExpensesParams {
   category?: string;
   page?: number;
   pageSize?: number;
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface ListExpensesResult {
   expenses: ApiExpense[];
   total: number;
   totalAmount: number;
+  previousTotal?: number;
 }
 
 export interface CreateExpenseInput {
@@ -54,6 +57,8 @@ export async function listExpenses(params: ListExpensesParams = {}): Promise<Lis
   if (params.category && params.category !== "all") searchParams.set("category", params.category);
   if (params.page != null) searchParams.set("page", String(params.page));
   if (params.pageSize != null) searchParams.set("pageSize", String(params.pageSize));
+  if (params.startDate) searchParams.set("startDate", params.startDate);
+  if (params.endDate) searchParams.set("endDate", params.endDate);
   const query = searchParams.toString();
   const url = query ? `/api/expenses?${query}` : "/api/expenses";
   return api<ListExpensesResult>(url);

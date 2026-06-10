@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
 import type { CashExpensesEntityType } from "@/services/cashExpensesReportService";
+import { CashExpensesLedgerDialog } from "@/components/dialogs/CashExpensesLedgerDialog";
 
 function toTodayISO(): string {
   const d = new Date();
@@ -67,6 +68,11 @@ export default function CashAndExpenses() {
   const effectiveProjectId = isSiteManager ? assignedProjectId : (selectedProjectId || null);
   const [startDate, setStartDate] = useState(toTodayISO);
   const [endDate, setEndDate] = useState(toTodayISO);
+  const [selectedEntity, setSelectedEntity] = useState<{
+    entityType: CashExpensesEntityType;
+    entityId: string;
+    entityName: string;
+  } | null>(null);
 
   useEffect(() => {
     if (endDate < startDate) {
@@ -156,10 +162,9 @@ export default function CashAndExpenses() {
     }),
     { current: 0, previous: 0, total: 0, tPayment: 0 }
   );
-  const openingBalanceTPayment = report?.openingBalances?.openingRow?.tPayment ?? 0;
   const receiptsBalance = {
     current: openingTotals.total,
-    previous: openingBalanceTPayment,
+    previous: openingTotals.previous,
     total: openingTotals.tPayment,
   };
   const dayClosing = {
@@ -337,7 +342,15 @@ export default function CashAndExpenses() {
                   report.payments.map((p, i) => (
                     <tr
                       key={p.sourceId ?? `${p.entityName}-${i}`}
-                      className="hover:bg-muted/30 transition-colors print:hover:bg-transparent"
+                      className="hover:bg-muted/30 transition-colors print:hover:bg-transparent cursor-pointer"
+                      role="button"
+                      onClick={() =>
+                        setSelectedEntity({
+                          entityType: p.entityType,
+                          entityId: p.entityId,
+                          entityName: p.entityName,
+                        })
+                      }
                     >
                       <td className={`${tdBase} font-medium`}>{p.entityName}</td>
                       <td className={`${tdBase} text-muted-foreground`}>
@@ -393,6 +406,19 @@ export default function CashAndExpenses() {
           </div>
         )}
       </div>
+
+      {selectedEntity && effectiveProjectId && (
+        <CashExpensesLedgerDialog
+          open={!!selectedEntity}
+          onOpenChange={(open) => { if (!open) setSelectedEntity(null); }}
+          projectId={effectiveProjectId}
+          entityType={selectedEntity.entityType}
+          entityId={selectedEntity.entityId}
+          entityName={selectedEntity.entityName}
+          startDate={startDate}
+          endDate={endDate}
+        />
+      )}
     </Layout>
   );
 }

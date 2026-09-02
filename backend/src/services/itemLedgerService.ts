@@ -4,6 +4,7 @@ import { VendorPayment } from "../models/VendorPayment.js";
 import { StockConsumptionEntry } from "../models/StockConsumptionEntry.js";
 import { CustomerSaleEntry } from "../models/CustomerSaleEntry.js";
 import { Customer } from "../models/Customer.js";
+import { InventoryReturn } from "../models/InventoryReturn.js";
 import { ConsumableItem } from "../models/ConsumableItem.js";
 import { Vendor } from "../models/Vendor.js";
 import { User } from "../models/User.js";
@@ -63,7 +64,20 @@ export interface ItemSaleLedgerPayload {
   runningBalance: number;
 }
 
-export type ItemLedgerRowPayload = ItemLedgerPayload | ItemConsumptionLedgerPayload | ItemSaleLedgerPayload;
+export interface ItemReturnLedgerPayload {
+  type: "sale_return" | "purchase_return";
+  id: string;
+  date: string;
+  partyName: string;
+  quantityReturned: number;
+  unit?: string;
+  unitPrice: number;
+  totalPrice: number;
+  remarks?: string;
+  runningBalance: number;
+}
+
+export type ItemLedgerRowPayload = ItemLedgerPayload | ItemConsumptionLedgerPayload | ItemSaleLedgerPayload | ItemReturnLedgerPayload;
 
 /** Quantities follow the same .XX (2-decimal) convention as pricing elsewhere in the app. */
 function normalizeQuantity(quantity: number): number {
@@ -173,10 +187,11 @@ export async function listItemLedger(
   if (!mongoose.Types.ObjectId.isValid(itemId)) {
     return { entries: [], total: 0 };
   }
-  const [docs, consumptionDocs, saleDocs] = await Promise.all([
+  const [docs, consumptionDocs, saleDocs, returnDocs] = await Promise.all([
     ItemLedgerEntry.find({ itemId }).sort({ date: 1, createdAt: 1 }).lean(),
     StockConsumptionEntry.find({ "items.itemId": itemId }).sort({ date: 1, createdAt: 1 }).lean(),
     CustomerSaleEntry.find({ itemId }).sort({ date: 1, createdAt: 1 }).lean(),
+    InventoryReturn.find({ "items.itemId": itemId }).sort({ date: 1, createdAt: 1 }).lean(),
   ]);
   const vendorIds = [...new Set(docs.map((d) => d.vendorId.toString()))];
   const allocationByVendor = new Map<string, Awaited<ReturnType<typeof getFifoAllocationForVendor>>>();
@@ -226,15 +241,35 @@ export async function listItemLedger(
     runningBalance: 0,
   }));
 
-  const allRows: ItemLedgerRowPayload[] = [...payloads, ...consumptionRows, ...saleRows].sort(
+  const returnCustomerIds = returnDocs.filter((doc) => doc.customerId).map((doc) => doc.customerId!);
+  const returnVendorIds = returnDocs.filter((doc) => doc.vendorId).map((doc) => doc.vendorId!);
+  const [returnCustomers, returnVendors] = await Promise.all([
+    Customer.find({ _id: { $in: returnCustomerIds } }).select("name").lean(),
+    Vendor.find({ _id: { $in: returnVendorIds } }).select("name").lean(),
+  ]);
+  const returnPartyNames = new Map([
+    ...returnCustomers.map((party) => [party._id.toString(), party.name] as const),
+    ...returnVendors.map((party) => [party._id.toString(), party.name] as const),
+  ]);
+  const returnRows: ItemReturnLedgerPayload[] = returnDocs.flatMap((doc) => doc.items
+    .filter((line) => line.itemId.toString() === itemId)
+    .map((line) => ({
+      type: doc.type, id: doc._id.toString(), date: doc.date,
+      partyName: returnPartyNames.get((doc.customerId ?? doc.vendorId)!.toString()) ?? "Unknown",
+      quantityReturned: line.quantity, unit: line.unit, unitPrice: line.unitPrice,
+      totalPrice: line.totalPrice, remarks: doc.remarks, runningBalance: 0,
+    })));
+
+  const allRows: ItemLedgerRowPayload[] = [...payloads, ...consumptionRows, ...saleRows, ...returnRows].sort(
     (a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)
   );
   let balance = 0;
   for (const row of allRows) {
-    balance +=
-      row.type === "purchase" ? row.quantity
-        : row.type === "sale" ? -row.quantitySold
-        : -row.quantityUsed;
+    if (row.type === "purchase") balance += row.quantity;
+    else if (row.type === "sale") balance -= row.quantitySold;
+    else if (row.type === "sale_return") balance += row.quantityReturned;
+    else if (row.type === "purchase_return") balance -= row.quantityReturned;
+    else if (row.type === "consumption") balance -= row.quantityUsed;
     row.runningBalance = balance;
   }
   const total = allRows.length;

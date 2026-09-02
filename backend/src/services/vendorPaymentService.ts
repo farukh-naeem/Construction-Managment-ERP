@@ -6,6 +6,8 @@ import { Vendor } from "../models/Vendor.js";
 import { User } from "../models/User.js";
 import { logAudit, getProjectName } from "./auditService.js";
 import { roleDisplay } from "./authService.js";
+import { InventoryReturn } from "../models/InventoryReturn.js";
+import { BankAccount } from "../models/BankAccount.js";
 
 export interface VendorPaymentPayload {
   id: string;
@@ -37,7 +39,7 @@ export interface CreateVendorPaymentInput {
 }
 
 export interface VendorLedgerRow {
-  type: "purchase" | "payment";
+  type: "purchase" | "payment" | "purchase_return";
   id: string;
   date: string;
   /** For purchase rows: item name */
@@ -123,15 +125,21 @@ export async function getVendorLedger(
   // Stats always reflect the vendor's full
   // history — only the displayed rows and the running balance react to the date range, exactly
   // like the Machinery ledger (getMachineTotals is all-time; only rows are range-filtered).
-  const [vendor, ledgerEntries, payments] = await Promise.all([
+  const [vendor, ledgerEntries, payments, returns] = await Promise.all([
     Vendor.findById(vendorId).select("advanceBalance").lean(),
     ItemLedgerEntry.find({ vendorId }).sort({ date: -1 }).lean(),
     VendorPayment.find({ vendorId }).sort({ date: -1 }).lean(),
+    InventoryReturn.find({ vendorId, type: "purchase_return" }).sort({ date: -1 }).lean(),
   ]);
 
-  const itemIds = [...new Set(ledgerEntries.map((e) => e.itemId.toString()))];
-  const itemDocs = await ConsumableItem.find({ _id: { $in: itemIds } }).select("name").lean();
+  const itemIds = [...new Set([...ledgerEntries.map((e) => e.itemId.toString()), ...returns.flatMap((r) => r.items.map((line) => line.itemId.toString()))])];
+  const accountIds = [...new Set(returns.map((r) => r.accountId.toString()))];
+  const [itemDocs, accountDocs] = await Promise.all([
+    ConsumableItem.find({ _id: { $in: itemIds } }).select("name").lean(),
+    BankAccount.find({ _id: { $in: accountIds } }).select("name").lean(),
+  ]);
   const itemMap = new Map(itemDocs.map((i) => [i._id.toString(), i.name]));
+  const accountMap = new Map(accountDocs.map((a) => [a._id.toString(), a.name]));
 
   let totalBilled = 0;
   let totalPaidFromLedger = 0;
@@ -178,6 +186,19 @@ export async function getVendorLedger(
     };
   });
 
+  const returnRows: VendorLedgerRow[] = returns.map((entry) => ({
+    type: "purchase_return", id: entry._id.toString(), date: entry.date,
+    itemName: entry.items.map((line) => itemMap.get(line.itemId.toString()) ?? "Unknown item").join(", "),
+    quantity: entry.items.reduce((sum, line) => sum + line.quantity, 0), totalPrice: entry.totalAmount,
+    amount: entry.totalAmount, paymentMethod: entry.paymentMethod,
+    referenceId: entry.referenceId, remarks: entry.remarks || `Purchase return refund into ${accountMap.get(entry.accountId.toString()) ?? "company account"}`,
+    runningTotal: 0,
+  }));
+
+  const totalReturned = returns.reduce((sum, entry) => sum + entry.totalAmount, 0);
+  totalBilled -= totalReturned;
+  totalPaidFromPayments -= totalReturned;
+
   const totalPaid = totalPaidFromLedger + totalPaidFromPayments;
   // Signed balance is the source of truth: debit (purchase cost) minus credit (cash paid).
   // It intentionally remains negative when the vendor has been paid in advance.
@@ -199,6 +220,7 @@ export async function getVendorLedger(
       date: p.date,
       delta: p.source === "advance" ? 0 : -p.amount,
     })),
+    ...returns.map((r) => ({ key: `purchase_return:${r._id}`, id: r._id.toString(), date: r.date, delta: 0 })),
   ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
   const previousBalance = startDate
@@ -214,7 +236,7 @@ export async function getVendorLedger(
     runningByKey.set(r.key, running);
   }
 
-  const allRows = [...purchaseRows, ...paymentRows]
+  const allRows = [...purchaseRows, ...paymentRows, ...returnRows]
     .filter((r) => (!startDate || r.date >= startDate) && (!endDate || r.date <= endDate))
     .map((r) => ({ ...r, runningTotal: runningByKey.get(`${r.type}:${r.id}`) ?? previousBalance }))
     // Oldest first. ObjectId preserves a consistent creation-order tie-break on the same date.

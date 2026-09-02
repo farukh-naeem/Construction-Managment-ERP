@@ -13,8 +13,9 @@ import { EditConsumableItemDialog } from "@/components/dialogs/EditConsumableIte
 import { StockConsumptionDialog } from "@/components/dialogs/StockConsumptionDialog";
 import { SellItemsDialog } from "@/components/dialogs/SellItemsDialog";
 import { BulkAddLedgerEntryDialog } from "@/components/dialogs/BulkAddLedgerEntryDialog";
+import { InventoryReturnDialog } from "@/components/dialogs/InventoryReturnDialog";
 import { Button } from "@/components/ui/button";
-import { Plus, Pencil, Trash2, ShoppingCart } from "lucide-react";
+import { Plus, Pencil, Trash2, ShoppingCart, Undo2, PackageMinus } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -48,6 +49,7 @@ import { useVendors } from "@/hooks/useVendors";
 import { getConsumableRunningBill, type ApiConsumableRunningBill } from "@/services/consumableRunningBillService";
 import PrintExportButton from "@/components/PrintExportButton";
 import { formatDisplayDate, todayPKT } from "@/lib/pktDate";
+import { useInventoryReturns } from "@/hooks/useInventoryReturns";
 
 export default function ConsumableInventory() {
   const { user } = useAuth();
@@ -62,6 +64,7 @@ export default function ConsumableInventory() {
   const { entries: consumptionEntries, loading: consumptionLoading, refetch: refetchConsumption } = useStockConsumption(effectiveProjectId);
   const { vendors } = useVendors(effectiveProjectId);
   const { sales, loading: salesLoading, refetch: refetchSales } = useCustomerSales(effectiveProjectId);
+  const { returns, loading: returnsLoading, refetch: refetchReturns } = useInventoryReturns(effectiveProjectId);
 
   const canEditDelete = !isSiteManager;
 
@@ -71,6 +74,8 @@ export default function ConsumableInventory() {
   const [deleteItemState, setDeleteItemState] = useState<ApiConsumableItem | null>(null);
   const [consumptionOpen, setConsumptionOpen] = useState(false);
   const [sellOpen, setSellOpen] = useState(false);
+  const [saleReturnOpen, setSaleReturnOpen] = useState(false);
+  const [purchaseReturnOpen, setPurchaseReturnOpen] = useState(false);
   const [deleteSaleState, setDeleteSaleState] = useState<ApiCustomerSale | null>(null);
   const [salesStart, setSalesStart] = useState("");
   const [salesEnd, setSalesEnd] = useState("");
@@ -214,6 +219,12 @@ export default function ConsumableInventory() {
             <Button variant="outline" size="sm" onClick={() => setSellOpen(true)} disabled={!effectiveProjectId}>
               <ShoppingCart className="h-4 w-4 mr-1" /> Sell Items
             </Button>
+            <Button variant="outline" size="sm" onClick={() => setSaleReturnOpen(true)} disabled={!effectiveProjectId}>
+              <Undo2 className="h-4 w-4 mr-1" /> Sale Return
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setPurchaseReturnOpen(true)} disabled={!effectiveProjectId}>
+              <PackageMinus className="h-4 w-4 mr-1" /> Purchase Return
+            </Button>
           </>
         }
       />
@@ -285,6 +296,22 @@ export default function ConsumableInventory() {
         consumableItems={items}
         onSuccess={() => { refetchItems(); refetchSales(); }}
       />
+      <InventoryReturnDialog
+        open={saleReturnOpen}
+        onOpenChange={setSaleReturnOpen}
+        type="sale_return"
+        projectId={effectiveProjectId}
+        items={items}
+        onSuccess={() => { refetchItems(); refetchSales(); refetchReturns(); }}
+      />
+      <InventoryReturnDialog
+        open={purchaseReturnOpen}
+        onOpenChange={setPurchaseReturnOpen}
+        type="purchase_return"
+        projectId={effectiveProjectId}
+        items={items}
+        onSuccess={() => { refetchItems(); refetchReturns(); }}
+      />
 
       {/* Delete sale dialog */}
       <AlertDialog open={!!deleteSaleState} onOpenChange={(open) => !open && setDeleteSaleState(null)}>
@@ -346,6 +373,7 @@ export default function ConsumableInventory() {
           <TabsTrigger value="inventory">Item list</TabsTrigger>
           <TabsTrigger value="consumption">Stock consumption</TabsTrigger>
           <TabsTrigger value="sales">Sales</TabsTrigger>
+          <TabsTrigger value="returns">Returns</TabsTrigger>
           <TabsTrigger value="sales-report">Sales Report</TabsTrigger>
           <TabsTrigger value="generate-bill">Generate Bill</TabsTrigger>
         </TabsList>
@@ -623,6 +651,40 @@ export default function ConsumableInventory() {
                 />
               </div>
             )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="returns">
+          <div className="border-2 border-border mt-4">
+            <div className="border-b-2 border-border bg-secondary px-4 py-3">
+              <h2 className="text-sm font-bold uppercase tracking-wider">Sale &amp; purchase returns</h2>
+              <p className="text-xs text-muted-foreground mt-1">Sale returns restore stock and pay customers. Purchase returns reduce stock and receive money from vendors.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-base">
+                <thead><tr className="border-b-2 border-border bg-primary text-primary-foreground">
+                  <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Date</th>
+                  <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Type</th>
+                  <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Customer / Vendor</th>
+                  <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Items</th>
+                  <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Company account</th>
+                  <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Refund</th>
+                </tr></thead>
+                <tbody>
+                  {returnsLoading ? <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>
+                    : !effectiveProjectId ? <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Select a project.</td></tr>
+                    : returns.length === 0 ? <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No returns recorded yet.</td></tr>
+                    : returns.map((entry) => <tr key={entry.id} className="border-b border-border hover:bg-accent/50">
+                      <td className="px-4 py-3 text-sm">{formatDisplayDate(entry.date)}</td>
+                      <td className="px-4 py-3 text-sm font-semibold">{entry.type === "sale_return" ? "Sale return" : "Purchase return"}</td>
+                      <td className="px-4 py-3 text-sm">{entry.partyName}</td>
+                      <td className="px-4 py-3 text-sm">{entry.items.map((item) => `${item.itemName} (${formatQuantity(item.quantity)} ${item.unit})`).join(", ")}</td>
+                      <td className="px-4 py-3 text-sm">{entry.accountName} · {entry.paymentMethod}</td>
+                      <td className={`px-4 py-3 text-right font-mono text-sm font-bold ${entry.type === "sale_return" ? "text-destructive" : "text-success"}`}>{formatCurrency(entry.totalAmount)}</td>
+                    </tr>)}
+                </tbody>
+              </table>
+            </div>
           </div>
         </TabsContent>
 

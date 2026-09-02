@@ -3,6 +3,7 @@ import { ConsumableItem } from "../models/ConsumableItem.js";
 import { ItemLedgerEntry } from "../models/ItemLedgerEntry.js";
 import { StockConsumptionEntry } from "../models/StockConsumptionEntry.js";
 import { CustomerSaleEntry } from "../models/CustomerSaleEntry.js";
+import { InventoryReturn } from "../models/InventoryReturn.js";
 import { User } from "../models/User.js";
 import { resolveSiteManagerProjectId } from "./projectAccessService.js";
 import { logAudit, getProjectName } from "./auditService.js";
@@ -245,17 +246,19 @@ export async function deleteConsumableItem(
   const target = await ConsumableItem.findById(id);
   if (!target) throw new Error("Item not found");
 
-  const [ledgerCount, consumptionCount, saleCount] = await Promise.all([
+  const [ledgerCount, consumptionCount, saleCount, returnCount] = await Promise.all([
     ItemLedgerEntry.countDocuments({ itemId: id }),
     StockConsumptionEntry.countDocuments({ "items.itemId": id }),
     CustomerSaleEntry.countDocuments({ itemId: id }),
+    InventoryReturn.countDocuments({ "items.itemId": id }),
   ]);
 
-  if (ledgerCount > 0 || consumptionCount > 0 || saleCount > 0) {
+  if (ledgerCount > 0 || consumptionCount > 0 || saleCount > 0 || returnCount > 0) {
     const parts: string[] = [];
     if (ledgerCount > 0) parts.push(`${ledgerCount} ledger entr${ledgerCount === 1 ? "y" : "ies"}`);
     if (consumptionCount > 0) parts.push(`${consumptionCount} consumption entr${consumptionCount === 1 ? "y" : "ies"}`);
     if (saleCount > 0) parts.push(`${saleCount} customer sale entr${saleCount === 1 ? "y" : "ies"}`);
+    if (returnCount > 0) parts.push(`${returnCount} return${returnCount === 1 ? "" : "s"}`);
     throw new Error(`Cannot delete "${target.name}": referenced in ${parts.join(" and ")}`);
   }
 

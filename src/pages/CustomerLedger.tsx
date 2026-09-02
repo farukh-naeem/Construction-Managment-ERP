@@ -119,8 +119,8 @@ export default function CustomerLedger() {
   const credit = Math.max(0, signedBalance);
   const displayedTotals = (ledger?.rows ?? []).reduce(
     (totals, row) => ({
-      sold: totals.sold + (row.type === "sale" ? row.totalPrice ?? 0 : 0),
-      received: totals.received + (row.type === "payment" ? row.amount ?? 0 : 0),
+      sold: totals.sold + (row.type === "sale" ? row.totalPrice ?? 0 : row.type === "sale_return" ? -(row.totalPrice ?? 0) : 0),
+      received: totals.received + (row.type === "payment" ? row.amount ?? 0 : row.type === "sale_return" ? -(row.amount ?? 0) : 0),
     }),
     { sold: 0, received: 0 }
   );
@@ -263,31 +263,31 @@ export default function CustomerLedger() {
                       <tr key={`${row.type}-${row.id}`} className="border-b border-border hover:bg-accent/50 transition-colors">
                         <td className="px-4 py-3 text-sm">{formatDisplayDate(row.date)}</td>
                         <td className="px-4 py-3 text-sm">
-                          {row.type === "payment"
+                          {row.type !== "sale"
                             ? [row.paymentMethod, row.accountName].filter(Boolean).join(" — ")
                             : "—"}
                         </td>
                         <td className="px-4 py-3 text-sm font-bold">
-                          {row.type === "sale" ? row.itemName : (row.remarks || row.referenceId || "—")}
+                          {row.type === "sale" ? row.itemName : row.type === "sale_return" ? `Sale return — ${row.itemName}` : (row.remarks || row.referenceId || "—")}
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-sm">
-                          {row.type === "sale" ? formatQuantity(row.quantity!) : "—"}
+                          {row.type === "sale" ? formatQuantity(row.quantity!) : row.type === "sale_return" ? `+${formatQuantity(row.quantity!)}` : "—"}
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-sm">
                           {row.type === "sale" ? formatCurrency(row.unitPrice!) : "—"}
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-sm text-destructive">
-                          {row.type === "sale" ? formatCurrency(row.totalPrice!) : "—"}
+                          {row.type === "sale" ? formatCurrency(row.totalPrice!) : row.type === "sale_return" ? `−${formatCurrency(row.totalPrice!)}` : "—"}
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-sm text-success">
-                          {row.type === "payment" ? formatCurrency(row.amount!) : "—"}
+                          {row.type === "payment" ? formatCurrency(row.amount!) : row.type === "sale_return" ? `−${formatCurrency(row.amount!)}` : "—"}
                         </td>
                         <td className={`px-4 py-3 text-right font-mono text-sm font-bold ${row.runningTotal < 0 ? "text-destructive" : ""}`}>
                           {formatCurrency(row.runningTotal)}
                         </td>
                         {canEditDelete && (
                           <td className="px-4 py-3 text-right print-hidden">
-                            <Button
+                            {row.type !== "sale_return" && <Button
                               variant="ghost"
                               size="icon"
                               onClick={() =>
@@ -298,7 +298,7 @@ export default function CustomerLedger() {
                               title={row.type === "payment" ? "Delete payment" : "Delete the whole sale"}
                             >
                               <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            </Button>}
                           </td>
                         )}
                       </tr>

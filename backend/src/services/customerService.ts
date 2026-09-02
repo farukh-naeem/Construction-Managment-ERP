@@ -6,6 +6,7 @@ import { CustomerPayment } from "../models/CustomerPayment.js";
 import { logAudit, getProjectName } from "./auditService.js";
 import { roleDisplay } from "./authService.js";
 import { resolveSiteManagerProjectId } from "./projectAccessService.js";
+import { InventoryReturn } from "../models/InventoryReturn.js";
 
 export interface CustomerPayload {
   id: string;
@@ -86,7 +87,7 @@ export async function listCustomers(
 
   // Mirrors getCustomerLedger's totals math: totalSold = sum of sale totalPrice in range;
   // totalReceived = sum of payment amounts in range; balance = totalReceived - totalSold (signed).
-  const [soldAgg, receivedAgg] = await Promise.all([
+  const [soldAgg, receivedAgg, returnAgg] = await Promise.all([
     CustomerSaleEntry.aggregate<{ _id: mongoose.Types.ObjectId; sold: number }>([
       { $match: { customerId: { $in: customerIds }, ...dateMatch } },
       { $group: { _id: "$customerId", sold: { $sum: "$totalPrice" } } },
@@ -95,13 +96,19 @@ export async function listCustomers(
       { $match: { customerId: { $in: customerIds }, ...dateMatch } },
       { $group: { _id: "$customerId", received: { $sum: "$amount" } } },
     ]),
+    InventoryReturn.aggregate<{ _id: mongoose.Types.ObjectId; returned: number }>([
+      { $match: { customerId: { $in: customerIds }, type: "sale_return", ...dateMatch } },
+      { $group: { _id: "$customerId", returned: { $sum: "$totalAmount" } } },
+    ]),
   ]);
   const soldMap = new Map(soldAgg.map((r) => [r._id.toString(), r.sold]));
   const receivedMap = new Map(receivedAgg.map((r) => [r._id.toString(), r.received]));
+  const returnMap = new Map(returnAgg.map((r) => [r._id.toString(), r.returned]));
 
   return payloads.map((c) => {
-    const totalSold = soldMap.get(c.id) ?? 0;
-    const totalReceived = receivedMap.get(c.id) ?? 0;
+    const returned = returnMap.get(c.id) ?? 0;
+    const totalSold = (soldMap.get(c.id) ?? 0) - returned;
+    const totalReceived = (receivedMap.get(c.id) ?? 0) - returned;
     return { ...c, totalSold, totalReceived, balance: totalReceived - totalSold };
   });
 }
@@ -230,14 +237,16 @@ export async function deleteCustomer(
   }
 
   // Unlike vendors, refuse to leave orphaned sale/payment rows behind.
-  const [saleCount, paymentCount] = await Promise.all([
+  const [saleCount, paymentCount, returnCount] = await Promise.all([
     CustomerSaleEntry.countDocuments({ customerId: id }),
     CustomerPayment.countDocuments({ customerId: id }),
+    InventoryReturn.countDocuments({ customerId: id }),
   ]);
-  if (saleCount > 0 || paymentCount > 0) {
+  if (saleCount > 0 || paymentCount > 0 || returnCount > 0) {
     const parts: string[] = [];
     if (saleCount > 0) parts.push(`${saleCount} sale entr${saleCount === 1 ? "y" : "ies"}`);
     if (paymentCount > 0) parts.push(`${paymentCount} payment${paymentCount === 1 ? "" : "s"}`);
+    if (returnCount > 0) parts.push(`${returnCount} return${returnCount === 1 ? "" : "s"}`);
     throw new Error(
       `Cannot delete customer "${target.name}": referenced in ${parts.join(" and ")}. Delete those first.`
     );

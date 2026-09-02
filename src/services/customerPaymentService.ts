@@ -15,7 +15,7 @@ export interface ApiCustomerPayment {
 }
 
 export interface ApiCustomerLedgerRow {
-  type: "sale" | "payment";
+  type: "sale" | "payment" | "sale_return";
   id: string;
   date: string;
   /** Sale rows only: groups every line of one "Sell Items" submission. */

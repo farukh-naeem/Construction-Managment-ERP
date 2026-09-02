@@ -49,10 +49,24 @@ export interface ApiItemSaleLedgerEntry {
   runningBalance: number;
 }
 
+export interface ApiItemReturnLedgerEntry {
+  type: "sale_return" | "purchase_return";
+  id: string;
+  date: string;
+  partyName: string;
+  quantityReturned: number;
+  unit?: string;
+  unitPrice: number;
+  totalPrice: number;
+  remarks?: string;
+  runningBalance: number;
+}
+
 export type ApiItemLedgerRow =
   | ApiItemLedgerEntry
   | ApiItemConsumptionLedgerEntry
-  | ApiItemSaleLedgerEntry;
+  | ApiItemSaleLedgerEntry
+  | ApiItemReturnLedgerEntry;
 
 export interface CreateItemLedgerInput {
   vendorId: string;

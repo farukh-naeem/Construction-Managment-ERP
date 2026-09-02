@@ -186,18 +186,24 @@ export default function ItemLedger() {
                         ? entry.remarks || "—"
                         : entry.type === "sale"
                           ? `Sold to ${entry.customerName}${entry.remarks ? ` — ${entry.remarks}` : ""}`
+                          : entry.type === "sale_return"
+                            ? `Sale return from ${entry.partyName}${entry.remarks ? ` — ${entry.remarks}` : ""}`
+                            : entry.type === "purchase_return"
+                              ? `Purchase return to ${entry.partyName}${entry.remarks ? ` — ${entry.remarks}` : ""}`
                           : entry.remarks || "Consumption"}
                     </td>
                     <td className="px-3 py-3 text-right font-mono text-sm">{entry.type === "consumption" ? "—" : formatCurrency(entry.unitPrice)}</td>
                     <td className="px-3 py-3 text-sm">{entry.type === "purchase" ? entry.vehicleNumber || "—" : "—"}</td>
                     <td className="px-3 py-3 text-sm">{entry.type === "purchase" ? entry.biltyNumber || "—" : "—"}</td>
                     <td className="px-3 py-3 text-sm">{entry.unit || "—"}</td>
-                    <td className="px-3 py-3 text-right font-mono text-sm text-success">{entry.type === "purchase" ? formatQuantity(entry.quantity) : "—"}</td>
+                    <td className="px-3 py-3 text-right font-mono text-sm text-success">{entry.type === "purchase" ? formatQuantity(entry.quantity) : entry.type === "sale_return" ? formatQuantity(entry.quantityReturned) : "—"}</td>
                     <td className="px-3 py-3 text-right font-mono text-sm text-destructive">
                       {entry.type === "consumption"
                         ? formatQuantity(entry.quantityUsed)
                         : entry.type === "sale"
                           ? formatQuantity(entry.quantitySold)
+                          : entry.type === "purchase_return"
+                            ? formatQuantity(entry.quantityReturned)
                           : "—"}
                     </td>
                     <td className="px-3 py-3 text-right font-mono text-sm font-bold">{entry.runningBalance != null ? formatQuantity(entry.runningBalance) : "—"}</td>
@@ -222,7 +228,7 @@ export default function ItemLedger() {
                 <tr className="border-t-2 border-border bg-muted/50 font-bold">
                   <td className="px-3 py-3 text-sm" colSpan={6}>Total</td>
                   <td className="px-3 py-3 text-right font-mono text-sm text-success">
-                    {formatQuantity(entries.reduce((sum, entry) => sum + (entry.type === "purchase" ? entry.quantity : 0), 0))}
+                    {formatQuantity(entries.reduce((sum, entry) => sum + (entry.type === "purchase" ? entry.quantity : entry.type === "sale_return" ? entry.quantityReturned : 0), 0))}
                   </td>
                   <td className="px-3 py-3 text-right font-mono text-sm text-destructive">
                     {formatQuantity(
@@ -233,6 +239,8 @@ export default function ItemLedger() {
                             ? entry.quantityUsed
                             : entry.type === "sale"
                               ? entry.quantitySold
+                              : entry.type === "purchase_return"
+                                ? entry.quantityReturned
                               : 0),
                         0
                       )

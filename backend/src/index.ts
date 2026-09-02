@@ -30,6 +30,7 @@ import { projectLedgerRoutes } from "./routes/projectLedger.js";
 import { clientRoutes } from "./routes/clients.js";
 import { customHeadRoutes } from "./routes/customHeads.js";
 import { reportsRoutes } from "./routes/reports.js";
+import { inventoryReturnRoutes } from "./routes/inventoryReturns.js";
 
 const PORT = process.env.PORT ?? 3001;
 const MONGODB_URI = process.env.MONGODB_URI ?? "mongodb://localhost:27017/builderp";
@@ -95,6 +96,7 @@ app.use("/api/bank-transactions", bankTransactionRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/custom-heads", customHeadRoutes);
 app.use("/api/reports", reportsRoutes);
+app.use("/api/inventory-returns", inventoryReturnRoutes);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });

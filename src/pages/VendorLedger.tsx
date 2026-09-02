@@ -102,8 +102,8 @@ export default function VendorLedger() {
   const advanceBalance = Math.max(0, -signedBalance);
   const displayedTotals = (ledger?.rows ?? []).reduce(
     (totals, row) => ({
-      billed: totals.billed + (row.type === "purchase" ? row.totalPrice ?? 0 : 0),
-      paid: totals.paid + (row.type === "payment" && row.source !== "advance" ? row.amount ?? 0 : 0),
+      billed: totals.billed + (row.type === "purchase" ? row.totalPrice ?? 0 : row.type === "purchase_return" ? -(row.totalPrice ?? 0) : 0),
+      paid: totals.paid + (row.type === "payment" && row.source !== "advance" ? row.amount ?? 0 : row.type === "purchase_return" ? -(row.amount ?? 0) : 0),
     }),
     { billed: 0, paid: 0 }
   );
@@ -234,23 +234,23 @@ export default function VendorLedger() {
                     {ledger.rows.map((row) => (
                     <tr key={`${row.type}-${row.id}`} className="border-b border-border hover:bg-accent/50 transition-colors">
                       <td className="px-4 py-3 text-sm">{formatDisplayDate(row.date)}</td>
-                      <td className="px-4 py-3 text-sm">{row.type === "payment" ? row.paymentMethod : "—"}</td>
+                      <td className="px-4 py-3 text-sm">{row.type !== "purchase" ? row.paymentMethod : "—"}</td>
                       <td className="px-4 py-3 text-sm font-bold">
-                        {row.type === "purchase" ? row.itemName : (row.remarks || row.referenceId || "—")}
+                        {row.type === "purchase" ? row.itemName : row.type === "purchase_return" ? `Purchase return — ${row.itemName}` : (row.remarks || row.referenceId || "—")}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-sm">
-                        {row.type === "purchase" ? formatQuantity(row.quantity) : "—"}
+                        {row.type === "purchase" ? formatQuantity(row.quantity) : row.type === "purchase_return" ? `−${formatQuantity(row.quantity)}` : "—"}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-sm">
                         {row.type === "purchase" ? formatCurrency(row.unitPrice!) : "—"}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-sm text-destructive">
-                        {row.type === "purchase" ? formatCurrency(row.totalPrice!) : "—"}
+                        {row.type === "purchase" ? formatCurrency(row.totalPrice!) : row.type === "purchase_return" ? `−${formatCurrency(row.totalPrice!)}` : "—"}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-sm text-success">
                         {row.type === "purchase"
                           ? (row.paidAmount! > 0 ? formatCurrency(row.paidAmount!) : "—")
-                          : row.source === "advance" ? "—" : formatCurrency(row.amount!)}
+                          : row.type === "purchase_return" ? `−${formatCurrency(row.amount!)}` : row.source === "advance" ? "—" : formatCurrency(row.amount!)}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-sm font-bold">{formatCurrency(row.runningTotal)}</td>
                       {canEditDelete && (

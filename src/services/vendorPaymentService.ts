@@ -13,7 +13,7 @@ export interface ApiVendorPayment {
 }
 
 export interface ApiVendorLedgerRow {
-  type: "purchase" | "payment";
+  type: "purchase" | "payment" | "purchase_return";
   id: string;
   date: string;
   itemName?: string;

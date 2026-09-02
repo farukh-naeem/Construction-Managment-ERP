@@ -6,6 +6,7 @@ import { VendorPayment } from "../models/VendorPayment.js";
 import { logAudit, getProjectName } from "./auditService.js";
 import { roleDisplay } from "./authService.js";
 import { resolveSiteManagerProjectId } from "./projectAccessService.js";
+import { InventoryReturn } from "../models/InventoryReturn.js";
 
 export interface VendorPayload {
   id: string;
@@ -88,7 +89,7 @@ export async function listVendors(
   // Mirrors getVendorLedger's totals math: totalBilled = sum of item totalPrice in range;
   // totalPaid = (ledger paidAmount + advanceGenerated) in range + external VendorPayment amounts
   // in range; remaining = totalBilled - totalPaid, floored at 0 for display.
-  const [billedAgg, payAgg] = await Promise.all([
+  const [billedAgg, payAgg, returnAgg] = await Promise.all([
     ItemLedgerEntry.aggregate<{ _id: mongoose.Types.ObjectId; billed: number; paidFromLedger: number }>([
       { $match: { vendorId: { $in: vendorIds }, ...dateMatch } },
       {
@@ -103,14 +104,20 @@ export async function listVendors(
       { $match: { vendorId: { $in: vendorIds }, source: { $ne: "advance" }, ...dateMatch } },
       { $group: { _id: "$vendorId", paid: { $sum: "$amount" } } },
     ]),
+    InventoryReturn.aggregate<{ _id: mongoose.Types.ObjectId; returned: number }>([
+      { $match: { vendorId: { $in: vendorIds }, type: "purchase_return", ...dateMatch } },
+      { $group: { _id: "$vendorId", returned: { $sum: "$totalAmount" } } },
+    ]),
   ]);
   const billedMap = new Map(billedAgg.map((r) => [r._id.toString(), r]));
   const payMap = new Map(payAgg.map((r) => [r._id.toString(), r.paid]));
+  const returnMap = new Map(returnAgg.map((r) => [r._id.toString(), r.returned]));
 
   return payloads.map((v) => {
     const b = billedMap.get(v.id);
-    const totalBilled = b?.billed ?? 0;
-    const totalPaid = (b?.paidFromLedger ?? 0) + (payMap.get(v.id) ?? 0);
+    const returned = returnMap.get(v.id) ?? 0;
+    const totalBilled = (b?.billed ?? 0) - returned;
+    const totalPaid = (b?.paidFromLedger ?? 0) + (payMap.get(v.id) ?? 0) - returned;
     const remaining = Math.max(0, totalBilled - totalPaid);
     return { ...v, totalBilled, totalPaid, remaining };
   });

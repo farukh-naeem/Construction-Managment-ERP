@@ -5,6 +5,7 @@ import { CustomerPayment } from "../models/CustomerPayment.js";
 import { ConsumableItem } from "../models/ConsumableItem.js";
 import { BankAccount } from "../models/BankAccount.js";
 import { BankTransaction } from "../models/BankTransaction.js";
+import { InventoryReturn } from "../models/InventoryReturn.js";
 import { User } from "../models/User.js";
 import { logAudit, getProjectName } from "./auditService.js";
 import { roleDisplay } from "./authService.js";
@@ -38,7 +39,7 @@ export interface CreateCustomerPaymentInput {
 }
 
 export interface CustomerLedgerRow {
-  type: "sale" | "payment";
+  type: "sale" | "payment" | "sale_return";
   id: string;
   date: string;
   /** For sale rows: groups every line of one "Sell Items" submission; deleting removes the group. */
@@ -95,13 +96,14 @@ export async function getCustomerLedger(
   const startDate = options?.startDate?.trim() || undefined;
   const endDate = options?.endDate?.trim() || undefined;
 
-  const [saleEntries, payments] = await Promise.all([
+  const [saleEntries, payments, returns] = await Promise.all([
     CustomerSaleEntry.find({ customerId }).sort({ date: -1 }).lean(),
     CustomerPayment.find({ customerId }).sort({ date: -1 }).lean(),
+    InventoryReturn.find({ customerId, type: "sale_return" }).sort({ date: -1 }).lean(),
   ]);
 
-  const itemIds = [...new Set(saleEntries.map((e) => e.itemId.toString()))];
-  const accountIds = [...new Set(payments.map((p) => p.accountId?.toString()).filter(Boolean))];
+  const itemIds = [...new Set([...saleEntries.map((e) => e.itemId.toString()), ...returns.flatMap((r) => r.items.map((line) => line.itemId.toString()))])];
+  const accountIds = [...new Set([...payments.map((p) => p.accountId?.toString()), ...returns.map((r) => r.accountId.toString())].filter(Boolean))];
   const [itemDocs, accountDocs] = await Promise.all([
     ConsumableItem.find({ _id: { $in: itemIds } }).select("name").lean(),
     BankAccount.find({ _id: { $in: accountIds } }).select("name").lean(),
@@ -143,6 +145,19 @@ export async function getCustomerLedger(
     };
   });
 
+  const returnRows: CustomerLedgerRow[] = returns.map((entry) => ({
+    type: "sale_return", id: entry._id.toString(), date: entry.date,
+    itemName: entry.items.map((line) => itemNames.get(line.itemId.toString()) ?? "Unknown item").join(", "),
+    quantity: entry.items.reduce((sum, line) => sum + line.quantity, 0), totalPrice: entry.totalAmount,
+    amount: entry.totalAmount, paymentMethod: entry.paymentMethod,
+    accountName: accountNames.get(entry.accountId.toString()), referenceId: entry.referenceId,
+    remarks: entry.remarks || "Sale return and customer refund", runningTotal: 0,
+  }));
+
+  const totalReturned = returns.reduce((sum, entry) => sum + entry.totalAmount, 0);
+  totalSold -= totalReturned;
+  totalReceived -= totalReturned;
+
   // Signed balance is the source of truth: credit (money received) minus debit (goods sold).
   // It intentionally goes negative once the customer has taken more stock than they paid for.
   const balance = totalReceived - totalSold;
@@ -160,6 +175,7 @@ export async function getCustomerLedger(
       date: p.date,
       delta: p.amount,
     })),
+    ...returns.map((r) => ({ key: `sale_return:${r._id}`, id: r._id.toString(), date: r.date, delta: 0 })),
   ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
   const previousBalance = startDate
@@ -175,7 +191,7 @@ export async function getCustomerLedger(
     runningByKey.set(r.key, running);
   }
 
-  const allRows = [...saleRows, ...paymentRows]
+  const allRows = [...saleRows, ...paymentRows, ...returnRows]
     .filter((r) => (!startDate || r.date >= startDate) && (!endDate || r.date <= endDate))
     .map((r) => ({ ...r, runningTotal: runningByKey.get(`${r.type}:${r.id}`) ?? previousBalance }))
     // Oldest first. ObjectId preserves a consistent creation-order tie-break on the same date.

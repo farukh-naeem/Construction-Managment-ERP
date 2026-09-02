@@ -132,6 +132,44 @@ export default function Liabilities() {
   const filteredEmployees = showEmployees ? employees.filter((e) => (e.totalDue ?? 0) > 0) : [];
   const filteredMachines = showMachines ? machines.filter((m) => m.totalPending > 0) : [];
 
+  // Column totals for the footer of each table — summed from the same filtered rows the
+  // table renders, so they always agree with what is on the page (and on the printout).
+  const sumBy = <T,>(rows: T[], pick: (row: T) => number) => rows.reduce((sum, row) => sum + pick(row), 0);
+  const vendorTotals = {
+    billed: sumBy(filteredVendors, (v) => v.totalBilled),
+    paid: sumBy(filteredVendors, (v) => v.totalPaid),
+    pending: sumBy(filteredVendors, (v) => v.remaining),
+  };
+  const contractorTotals = {
+    total: sumBy(filteredContractors, (c) => c.totalAmount),
+    paid: sumBy(filteredContractors, (c) => c.totalPaid),
+    pending: sumBy(filteredContractors, (c) => c.remaining),
+  };
+  const employeeTotals = {
+    paid: sumBy(filteredEmployees, (e) => e.totalPaid ?? 0),
+    due: sumBy(filteredEmployees, (e) => e.totalDue ?? 0),
+  };
+  const machineTotals = {
+    cost: sumBy(filteredMachines, (m) => m.totalCost),
+    paid: sumBy(filteredMachines, (m) => m.totalPaid),
+    pending: sumBy(filteredMachines, (m) => m.totalPending),
+  };
+
+  // Grand total across all four tables. Salary has no billed column of its own, so its
+  // obligation is Paid + Due — the same identity the other three already satisfy
+  // (billed = paid + pending). That keeps the grand row internally consistent:
+  // billed === paid + pending.
+  const grandTotals = {
+    billed:
+      vendorTotals.billed +
+      contractorTotals.total +
+      (employeeTotals.paid + employeeTotals.due) +
+      machineTotals.cost,
+    paid: vendorTotals.paid + contractorTotals.paid + employeeTotals.paid + machineTotals.paid,
+    pending:
+      vendorTotals.pending + contractorTotals.pending + employeeTotals.due + machineTotals.pending,
+  };
+
   const selectedProjectName = projects.find((p) => p.id === effectiveProjectId)?.name ?? "Project";
 
   const refetchAll = () => {
@@ -208,7 +246,7 @@ export default function Liabilities() {
           </p>
         ) : (
         <>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+        <div className="print-hidden grid grid-cols-2 gap-4 sm:grid-cols-5">
           <StatCard label="Total Liabilities" value={formatCurrency(totalLiabilities)} variant="destructive" />
           <StatCard label="Vendor Dues" value={formatCurrency(vendorDues)} variant="warning" />
           <StatCard label="Contractor Dues" value={formatCurrency(contractorDues)} variant="warning" />
@@ -217,7 +255,7 @@ export default function Liabilities() {
         </div>
 
         {/* Charts — no inner padding, auto-scale to avoid overflow */}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="print-hidden grid grid-cols-1 gap-4 lg:grid-cols-2">
           <ChartCard title="Liability Breakdown" subtitle="Share of total outstanding by category" noContentPadding>
             {liabilityBreakdownData.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8">No outstanding liabilities</p>
@@ -288,7 +326,7 @@ export default function Liabilities() {
                   <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Billed</th>
                   <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Paid</th>
                   <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Pending</th>
-                  <th className="px-4 py-2.5 text-center text-sm font-bold uppercase tracking-wider">Action</th>
+                  <th className="print-hidden px-4 py-2.5 text-center text-sm font-bold uppercase tracking-wider">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -310,7 +348,7 @@ export default function Liabilities() {
                     <td className="px-4 py-3 text-right font-mono text-sm">{formatCurrency(v.totalBilled)}</td>
                     <td className="px-4 py-3 text-right font-mono text-sm text-success">{formatCurrency(v.totalPaid)}</td>
                     <td className="px-4 py-3 text-right font-mono text-sm text-destructive font-bold">{formatCurrency(v.remaining)}</td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="print-hidden px-4 py-3 text-center">
                       <Button
                         size="sm"
                         variant="outline"
@@ -325,6 +363,15 @@ export default function Liabilities() {
                   </tr>
                 )))}
               </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border bg-muted/30 font-bold">
+                  <td className="px-4 py-3 text-right text-sm">Total</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm">{formatCurrency(vendorTotals.billed)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm text-success">{formatCurrency(vendorTotals.paid)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm text-destructive">{formatCurrency(vendorTotals.pending)}</td>
+                  <td className="print-hidden" />
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -342,7 +389,7 @@ export default function Liabilities() {
                   <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Total</th>
                   <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Paid</th>
                   <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Pending</th>
-                  <th className="px-4 py-2.5 text-center text-sm font-bold uppercase tracking-wider">Action</th>
+                  <th className="print-hidden px-4 py-2.5 text-center text-sm font-bold uppercase tracking-wider">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -364,7 +411,7 @@ export default function Liabilities() {
                     <td className="px-4 py-3 text-right font-mono text-sm">{formatCurrency(c.totalAmount)}</td>
                     <td className="px-4 py-3 text-right font-mono text-sm text-success">{formatCurrency(c.totalPaid)}</td>
                     <td className="px-4 py-3 text-right font-mono text-sm text-destructive font-bold">{formatCurrency(c.remaining)}</td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="print-hidden px-4 py-3 text-center">
                       <Button
                         size="sm"
                         variant="outline"
@@ -379,6 +426,15 @@ export default function Liabilities() {
                   </tr>
                 )))}
               </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border bg-muted/30 font-bold">
+                  <td className="px-4 py-3 text-right text-sm">Total</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm">{formatCurrency(contractorTotals.total)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm text-success">{formatCurrency(contractorTotals.paid)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm text-destructive">{formatCurrency(contractorTotals.pending)}</td>
+                  <td className="print-hidden" />
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -397,7 +453,7 @@ export default function Liabilities() {
                   <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Project</th>
                   <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Total Paid (All Months)</th>
                   <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Due (All Months)</th>
-                  <th className="px-4 py-2.5 text-center text-sm font-bold uppercase tracking-wider">Action</th>
+                  <th className="print-hidden px-4 py-2.5 text-center text-sm font-bold uppercase tracking-wider">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -426,7 +482,7 @@ export default function Liabilities() {
                     <td className="px-4 py-3 text-sm">{e.project}</td>
                     <td className="px-4 py-3 text-right font-mono text-sm">{formatCurrency(e.totalPaid ?? 0)}</td>
                     <td className="px-4 py-3 text-right font-mono text-sm text-destructive font-bold">{formatCurrency(e.totalDue ?? 0)}</td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="print-hidden px-4 py-3 text-center">
                       <Button
                         size="sm"
                         variant="outline"
@@ -441,6 +497,14 @@ export default function Liabilities() {
                   </tr>
                 )))}
               </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border bg-muted/30 font-bold">
+                  <td colSpan={3} className="px-4 py-3 text-right text-sm">Total</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm">{formatCurrency(employeeTotals.paid)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm text-destructive">{formatCurrency(employeeTotals.due)}</td>
+                  <td className="print-hidden" />
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -458,7 +522,7 @@ export default function Liabilities() {
                   <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Total Cost</th>
                   <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Paid</th>
                   <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Pending</th>
-                  <th className="px-4 py-2.5 text-center text-sm font-bold uppercase tracking-wider">Action</th>
+                  <th className="print-hidden px-4 py-2.5 text-center text-sm font-bold uppercase tracking-wider">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -480,7 +544,7 @@ export default function Liabilities() {
                     <td className="px-4 py-3 text-right font-mono text-sm">{formatCurrency(m.totalCost)}</td>
                     <td className="px-4 py-3 text-right font-mono text-sm text-success">{formatCurrency(m.totalPaid)}</td>
                     <td className="px-4 py-3 text-right font-mono text-sm text-destructive font-bold">{formatCurrency(m.totalPending)}</td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="print-hidden px-4 py-3 text-center">
                       <Button
                         size="sm"
                         variant="outline"
@@ -494,6 +558,42 @@ export default function Liabilities() {
                     </td>
                   </tr>
                 )))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-border bg-muted/30 font-bold">
+                  <td className="px-4 py-3 text-right text-sm">Total</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm">{formatCurrency(machineTotals.cost)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm text-success">{formatCurrency(machineTotals.paid)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm text-destructive">{formatCurrency(machineTotals.pending)}</td>
+                  <td className="print-hidden" />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        {/* Grand total — the four tables' column totals combined */}
+        <div className="border-2 border-border">
+          <div className="border-b-2 border-border bg-secondary px-4 py-3">
+            <h2 className="text-sm font-bold uppercase tracking-wider">Grand Total — All Liabilities</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-base">
+              <thead>
+                <tr className="border-b-2 border-border bg-primary text-primary-foreground">
+                  <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Grand Total</th>
+                  <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Billed / Total</th>
+                  <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Paid</th>
+                  <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Pending / Due</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="bg-muted/30 font-bold">
+                  <td className="px-4 py-3 text-sm">Vendors + Contractors + Salaries + Machinery</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm">{formatCurrency(grandTotals.billed)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm text-success">{formatCurrency(grandTotals.paid)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-sm text-destructive">{formatCurrency(grandTotals.pending)}</td>
+                </tr>
               </tbody>
             </table>
           </div>

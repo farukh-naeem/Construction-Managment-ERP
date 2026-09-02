@@ -33,6 +33,13 @@ export async function getConsumableItem(id: string): Promise<ApiConsumableItem> 
   return api<ApiConsumableItem>(`/api/consumable-items/${id}`);
 }
 
+export async function getDieselItem(projectId: string): Promise<ApiConsumableItem | null> {
+  const result = await api<{ item: ApiConsumableItem | null }>(
+    `/api/consumable-items/diesel?${new URLSearchParams({ projectId })}`
+  );
+  return result.item;
+}
+
 export async function createConsumableItem(input: CreateConsumableItemInput): Promise<ApiConsumableItem> {
   return api<ApiConsumableItem>("/api/consumable-items", {
     method: "POST",

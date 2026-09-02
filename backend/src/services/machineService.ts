@@ -3,6 +3,8 @@ import { Machine } from "../models/Machine.js";
 import { MachineLedgerEntry } from "../models/MachineLedgerEntry.js";
 import { MachinePayment } from "../models/MachinePayment.js";
 import { MachinePaymentAllocation } from "../models/MachinePaymentAllocation.js";
+import { StockConsumptionEntry } from "../models/StockConsumptionEntry.js";
+import { ConsumableItem } from "../models/ConsumableItem.js";
 import { User } from "../models/User.js";
 import { logAudit, getProjectName } from "./auditService.js";
 import { roleDisplay } from "./authService.js";
@@ -17,17 +19,24 @@ export interface MachinePayload {
 }
 
 export interface MachineTotals {
+  totalDiesel: number;
   totalHours: number;
   totalCost: number;
   totalPaid: number;
   remaining: number;
+  /** Overpayment held by the machine owner — max(0, totalPaid - totalCost). The mirror image of
+   *  `remaining`: money we have already handed over that no billed hours have consumed yet. */
+  totalAdvance: number;
 }
 
 export interface MachineWithTotals extends MachinePayload {
+  totalDiesel: number;
   totalHours: number;
   totalCost: number;
   totalPaid: number;
   totalPending: number; // alias for remaining (frontend uses totalPending)
+  /** Unconsumed advance sitting with the owner (receivable side). */
+  totalAdvance: number;
 }
 
 export interface CreateMachineInput {
@@ -82,7 +91,7 @@ export interface MachineTotalsOptions {
 /** Compute machine totals from ledger entries and payments (all-time, or within a date range). */
 export async function getMachineTotals(machineId: string, options?: MachineTotalsOptions): Promise<MachineTotals> {
   if (!mongoose.Types.ObjectId.isValid(machineId)) {
-    return { totalHours: 0, totalCost: 0, totalPaid: 0, remaining: 0 };
+    return { totalDiesel: 0, totalHours: 0, totalCost: 0, totalPaid: 0, remaining: 0, totalAdvance: 0 };
   }
   const machineObjId = new mongoose.Types.ObjectId(machineId);
   const startDate = options?.startDate?.trim() || undefined;
@@ -94,7 +103,7 @@ export async function getMachineTotals(machineId: string, options?: MachineTotal
       ...(endDate && { $lte: endDate }),
     };
   }
-  const [entryAgg, paymentSum] = await Promise.all([
+  const [entryAgg, paymentSum, dieselSum] = await Promise.all([
     MachineLedgerEntry.aggregate<{ totalHours: number; totalCost: number }>([
       { $match: { machineId: machineObjId, ...dateMatch } },
       { $group: { _id: null, totalHours: { $sum: "$hoursWorked" }, totalCost: { $sum: "$totalCost" } } },
@@ -102,15 +111,23 @@ export async function getMachineTotals(machineId: string, options?: MachineTotal
     MachinePayment.aggregate([{ $match: { machineId: machineObjId, ...dateMatch } }, { $group: { _id: null, total: { $sum: "$amount" } } }]).then(
       (r) => r[0]?.total ?? 0
     ),
+    StockConsumptionEntry.aggregate([
+      { $match: { machineId: machineObjId, ...dateMatch } },
+      { $unwind: "$items" },
+      { $group: { _id: null, total: { $sum: "$items.quantityUsed" } } },
+    ]).then((r) => r[0]?.total ?? 0),
   ]);
   const totalCost = entryAgg.totalCost;
   const totalPaid = paymentSum;
   const remaining = Math.max(0, totalCost - totalPaid);
+  const totalAdvance = Math.max(0, totalPaid - totalCost);
   return {
+    totalDiesel: dieselSum,
     totalHours: entryAgg.totalHours,
     totalCost,
     totalPaid,
     remaining,
+    totalAdvance,
   };
 }
 
@@ -432,10 +449,12 @@ export async function listMachines(
     const totals = await getMachineTotals(doc._id.toString(), { startDate: params.startDate, endDate: params.endDate });
     items.push({
       ...toPayload(doc),
+      totalDiesel: totals.totalDiesel,
       totalHours: totals.totalHours,
       totalCost: totals.totalCost,
       totalPaid: totals.totalPaid,
       totalPending: totals.remaining,
+      totalAdvance: totals.totalAdvance,
     });
   }
   return { items, total };
@@ -448,10 +467,12 @@ export async function getMachineById(id: string): Promise<MachineWithTotals | nu
   const totals = await getMachineTotals(id);
   return {
     ...toPayload(doc),
+    totalDiesel: totals.totalDiesel,
     totalHours: totals.totalHours,
     totalCost: totals.totalCost,
     totalPaid: totals.totalPaid,
     totalPending: totals.remaining,
+    totalAdvance: totals.totalAdvance,
   };
 }
 
@@ -564,10 +585,22 @@ export async function deleteMachine(
     );
   }
 
-  await MachinePaymentAllocation.deleteMany({ machineId: id });
-  await MachinePayment.deleteMany({ machineId: id });
-  await MachineLedgerEntry.deleteMany({ machineId: id });
-  await Machine.findByIdAndDelete(id);
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const consumptions = await StockConsumptionEntry.find({ machineId: id }).session(session).lean();
+      for (const consumption of consumptions) {
+        for (const line of consumption.items) {
+          await ConsumableItem.findByIdAndUpdate(line.itemId, { $inc: { currentStock: line.quantityUsed } }, { session });
+        }
+      }
+      await StockConsumptionEntry.deleteMany({ machineId: id }, { session });
+      await MachinePaymentAllocation.deleteMany({ machineId: id }, { session });
+      await MachinePayment.deleteMany({ machineId: id }, { session });
+      await MachineLedgerEntry.deleteMany({ machineId: id }, { session });
+      await Machine.findByIdAndDelete(id, { session });
+    });
+  } finally { await session.endSession(); }
 
   const actorUser = await User.findById(actor.userId).lean();
   const role = roleDisplay[actor.role as keyof typeof roleDisplay] ?? actor.role;

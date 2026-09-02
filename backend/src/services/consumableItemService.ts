@@ -2,11 +2,13 @@ import mongoose from "mongoose";
 import { ConsumableItem } from "../models/ConsumableItem.js";
 import { ItemLedgerEntry } from "../models/ItemLedgerEntry.js";
 import { StockConsumptionEntry } from "../models/StockConsumptionEntry.js";
+import { CustomerSaleEntry } from "../models/CustomerSaleEntry.js";
 import { User } from "../models/User.js";
 import { resolveSiteManagerProjectId } from "./projectAccessService.js";
 import { logAudit, getProjectName } from "./auditService.js";
 import { roleDisplay } from "./authService.js";
 import { getFifoAllocationForVendorsBulk } from "./fifoAllocation.js";
+import { findDieselItem } from "./dieselService.js";
 
 export interface ConsumableItemPayload {
   id: string;
@@ -124,6 +126,16 @@ export async function getConsumableItemById(id: string): Promise<ConsumableItemP
   return payload;
 }
 
+export async function getDieselItem(
+  actor: { userId: string; role: string }, projectIdParam?: string
+): Promise<ConsumableItemPayload | null> {
+  let projectId = projectIdParam;
+  if (actor.role === "site_manager") projectId = await resolveSiteManagerProjectId(actor.userId, projectIdParam);
+  if (!projectId || !mongoose.Types.ObjectId.isValid(projectId)) return null;
+  const item = await findDieselItem(projectId);
+  return item ? toPayload(item) : null;
+}
+
 export async function createConsumableItem(
   actor: { userId: string; email: string; role: string },
   input: CreateConsumableItemInput
@@ -233,15 +245,17 @@ export async function deleteConsumableItem(
   const target = await ConsumableItem.findById(id);
   if (!target) throw new Error("Item not found");
 
-  const [ledgerCount, consumptionCount] = await Promise.all([
+  const [ledgerCount, consumptionCount, saleCount] = await Promise.all([
     ItemLedgerEntry.countDocuments({ itemId: id }),
     StockConsumptionEntry.countDocuments({ "items.itemId": id }),
+    CustomerSaleEntry.countDocuments({ itemId: id }),
   ]);
 
-  if (ledgerCount > 0 || consumptionCount > 0) {
+  if (ledgerCount > 0 || consumptionCount > 0 || saleCount > 0) {
     const parts: string[] = [];
     if (ledgerCount > 0) parts.push(`${ledgerCount} ledger entr${ledgerCount === 1 ? "y" : "ies"}`);
     if (consumptionCount > 0) parts.push(`${consumptionCount} consumption entr${consumptionCount === 1 ? "y" : "ies"}`);
+    if (saleCount > 0) parts.push(`${saleCount} customer sale entr${saleCount === 1 ? "y" : "ies"}`);
     throw new Error(`Cannot delete "${target.name}": referenced in ${parts.join(" and ")}`);
   }
 

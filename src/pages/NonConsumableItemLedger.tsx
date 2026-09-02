@@ -4,6 +4,7 @@ import Layout from "@/components/Layout";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
 import { formatCurrency } from "@/lib/mock-data";
+import { formatDisplayDate } from "@/lib/pktDate";
 import { useNonConsumableLedger } from "@/hooks/useNonConsumableLedger";
 import {
   getNonConsumableItem,
@@ -297,7 +298,7 @@ export default function NonConsumableItemLedger() {
                     key={entry.id}
                     className="border-b border-border hover:bg-accent/50 transition-colors"
                   >
-                    <td className="px-3 py-3 text-sm">{entry.date}</td>
+                    <td className="px-3 py-3 text-sm">{formatDisplayDate(entry.date)}</td>
                     <td className="px-3 py-3 text-sm font-bold">
                       {EVENT_TYPE_LABELS[entry.eventType] ?? entry.eventType}
                     </td>

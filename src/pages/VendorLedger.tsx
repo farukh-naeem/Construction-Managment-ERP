@@ -4,6 +4,7 @@ import Layout from "@/components/Layout";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
 import { formatCurrency, formatQuantity } from "@/lib/mock-data";
+import { formatDisplayDate } from "@/lib/pktDate";
 import { useVendors } from "@/hooks/useVendors";
 import { useVendorLedger } from "@/hooks/useVendorLedger";
 import { VendorPaymentDialog } from "@/components/dialogs/VendorPaymentDialog";
@@ -31,7 +32,9 @@ const PAGE_SIZE_OPTIONS = [12, 24, 50, 100];
 export default function VendorLedger() {
   const { vendorId } = useParams<{ vendorId: string }>();
   const [searchParams] = useSearchParams();
-  const fromLiabilities = searchParams.get("returnTo") === "liabilities";
+  const returnTo = searchParams.get("returnTo");
+  const backPath = returnTo === "liabilities" ? "/liabilities" : returnTo === "receivables" ? "/receivables" : "/vendors";
+  const backLabel = returnTo === "liabilities" ? "Back to Liabilities" : returnTo === "receivables" ? "Back to Receivables" : "Back to Vendors";
   const { user } = useAuth();
   const canEditDelete = user?.role !== "Site Manager";
 
@@ -108,10 +111,10 @@ export default function VendorLedger() {
   return (
     <Layout>
       <Link
-        to={fromLiabilities ? "/liabilities" : "/vendors"}
+        to={backPath}
         className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground mb-4"
       >
-        <ArrowLeft className="h-3 w-3" /> {fromLiabilities ? "Back to Liabilities" : "Back to Vendors"}
+        <ArrowLeft className="h-3 w-3" /> {backLabel}
       </Link>
 
       <PageHeader
@@ -230,7 +233,7 @@ export default function VendorLedger() {
                   <>
                     {ledger.rows.map((row) => (
                     <tr key={`${row.type}-${row.id}`} className="border-b border-border hover:bg-accent/50 transition-colors">
-                      <td className="px-4 py-3 text-sm">{row.date}</td>
+                      <td className="px-4 py-3 text-sm">{formatDisplayDate(row.date)}</td>
                       <td className="px-4 py-3 text-sm">{row.type === "payment" ? row.paymentMethod : "—"}</td>
                       <td className="px-4 py-3 text-sm font-bold">
                         {row.type === "purchase" ? row.itemName : (row.remarks || row.referenceId || "—")}

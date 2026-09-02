@@ -4,6 +4,7 @@ import Layout from "@/components/Layout";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
 import { formatCurrency } from "@/lib/mock-data";
+import { formatDisplayDate } from "@/lib/pktDate";
 import { useAuth } from "@/context/AuthContext";
 import { useSelectedProject } from "@/context/SelectedProjectContext";
 import { useProjects } from "@/hooks/useProjects";
@@ -85,7 +86,9 @@ export default function Contractors() {
   const canEditDelete = currentUser?.role !== "Site Manager";
 
   const urlContractorId = searchParams.get("contractorId") ?? null;
-  const fromLiabilities = searchParams.get("returnTo") === "liabilities";
+  const returnTo = searchParams.get("returnTo");
+  const fromLiabilities = returnTo === "liabilities";
+  const fromReceivables = returnTo === "receivables";
 
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
   const effectiveProjectId = selectedProjectId || null;
@@ -241,9 +244,12 @@ export default function Contractors() {
 
   return (
     <Layout>
-      {fromLiabilities && (
-        <Link to="/liabilities" className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground mb-4">
-          <ArrowLeft className="h-3 w-3" /> Back to Liabilities
+      {(fromLiabilities || fromReceivables) && (
+        <Link
+          to={fromLiabilities ? "/liabilities" : "/receivables"}
+          className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground mb-4"
+        >
+          <ArrowLeft className="h-3 w-3" /> {fromLiabilities ? "Back to Liabilities" : "Back to Receivables"}
         </Link>
       )}
       <PageHeader
@@ -550,7 +556,7 @@ export default function Contractors() {
                             {selectedContractorId !== ALL_CONTRACTORS && (
                               <td className="px-4 py-3 text-sm">{row.type === "previous" ? "—" : getMonthLabelFromDate(row.date)}</td>
                             )}
-                            <td className="px-4 py-3 text-sm">{row.date || "—"}</td>
+                            <td className="px-4 py-3 text-sm">{formatDisplayDate(row.date)}</td>
                             <td className="px-4 py-3 text-sm text-muted-foreground">
                               {row.type === "payment" ? (row.referenceId ?? "—") : (row.remarks ?? "—")}
                             </td>

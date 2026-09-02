@@ -404,6 +404,13 @@ export async function updateBankTransaction(
     if (!existing) {
       throw new Error("Transaction not found");
     }
+    // Customer payments own their inflow — editing or deleting it here would desync the
+    // customer's ledger from the bank. Route the change through the customer instead.
+    if (existing.customerId) {
+      throw new Error(
+        "This transaction was created by a customer payment. Edit or delete it from the customer's ledger instead."
+      );
+    }
 
     // Reverse the existing transaction
     if (existing.type === "inflow") {
@@ -564,6 +571,13 @@ export async function deleteBankTransaction(
     const existing = await BankTransaction.findById(id).session(session);
     if (!existing) {
       throw new Error("Transaction not found");
+    }
+    // Customer payments own their inflow — editing or deleting it here would desync the
+    // customer's ledger from the bank. Route the change through the customer instead.
+    if (existing.customerId) {
+      throw new Error(
+        "This transaction was created by a customer payment. Edit or delete it from the customer's ledger instead."
+      );
     }
 
     // Reverse the transaction

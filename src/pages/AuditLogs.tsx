@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import Layout from "@/components/Layout";
+import { formatDisplayDateTime } from "@/lib/pktDate";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import {
@@ -269,7 +270,7 @@ export default function AuditLogs() {
               ) : (
                 logs.map((log) => (
                   <tr key={log.id} className="border-b border-border hover:bg-accent/50 transition-colors">
-                    <td className="px-4 py-3 text-sm font-mono">{log.timestamp}</td>
+                    <td className="px-4 py-3 text-sm font-mono">{formatDisplayDateTime(log.timestamp)}</td>
                     <td className="px-4 py-3 text-sm">{log.user}</td>
                     <td className="px-4 py-3 text-sm uppercase text-muted-foreground">{log.role}</td>
                     <td className="px-4 py-3"><StatusBadge status={log.action} /></td>

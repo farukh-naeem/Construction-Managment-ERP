@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Loader2, Printer } from "lucide-react";
 import { formatCurrency } from "@/lib/mock-data";
+import { formatDisplayDate, formatDisplayDateRange } from "@/lib/pktDate";
 import { COMPANY_ADDRESS, COMPANY_LOGO_URL, COMPANY_NAME } from "@/lib/company";
 import {
   getCashExpensesEntityLedger,
@@ -70,7 +71,7 @@ export function CashExpensesLedgerDialog({
   }, [ledger]);
 
   const showNameCol = entityType === "Salary" || entityType === "Wages" || entityType === "NonConsumable";
-  const periodLabel = startDate === endDate ? startDate : `${startDate} to ${endDate}`;
+  const periodLabel = formatDisplayDateRange(startDate, endDate);
 
   const handlePrint = () => {
     if (!ledger) return;
@@ -156,7 +157,7 @@ export function CashExpensesLedgerDialog({
                 <div className="print-title hidden">{entityName} — {ENTITY_TYPE_LABELS[entityType]}</div>
                 <div className="print-period hidden">{periodLabel}</div>
                 <div className="print-previous text-sm font-medium px-1 mb-2">
-                  Previous (before {startDate}):{" "}
+                  Previous (before {formatDisplayDate(startDate)}):{" "}
                   <span className="font-mono font-bold">{formatCurrency(ledger.previousAmount)}</span>
                 </div>
                 <table className="w-full border-collapse text-base">
@@ -182,7 +183,7 @@ export function CashExpensesLedgerDialog({
                     ) : (
                       ledger.entries.map((entry, i) => (
                         <tr key={entry.id} className="hover:bg-accent/40 transition-colors">
-                          <td className={`${tdCls} text-muted-foreground`}>{entry.date}</td>
+                          <td className={`${tdCls} text-muted-foreground`}>{formatDisplayDate(entry.date)}</td>
                           {showNameCol && <td className={`${tdCls} font-medium`}>{entry.name}</td>}
                           <td className={`${tdCls} text-muted-foreground max-w-[200px] truncate`} title={entry.remarks || undefined}>
                             {entry.remarks || "-"}

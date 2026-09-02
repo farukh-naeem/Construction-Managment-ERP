@@ -4,6 +4,7 @@ import Layout from "@/components/Layout";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { formatCurrency } from "@/lib/mock-data";
+import { formatDisplayDate, formatDisplayDateRange, todayPKT } from "@/lib/pktDate";
 import { useBankAccounts } from "@/hooks/useBankAccounts";
 import { useBankTransactions } from "@/hooks/useBankTransactions";
 import { useProjects } from "@/hooks/useProjects";
@@ -48,8 +49,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { todayPKT } from "@/lib/pktDate";
-
 const PAGE_SIZE_OPTIONS = [12, 24, 50, 100];
 const PRINT_FETCH_PAGE_SIZE = 100;
 
@@ -62,7 +61,7 @@ function escapeHtml(text: string) {
 }
 
 function formatDateForPrint(date: string) {
-  return date;
+  return formatDisplayDate(date);
 }
 
 function formatAmount(value: number) {
@@ -298,7 +297,7 @@ export default function BankAccounts() {
           </div>
           <div class="header">
             <h1>${escapeHtml(selectedAccount.name)} (${escapeHtml(selectedAccount.accountNumber || "Account")})</h1>
-            <p>Date Range: ${escapeHtml(printStartDate)} to ${escapeHtml(printEndDate)}</p>
+            <p>Date Range: ${escapeHtml(formatDisplayDateRange(printStartDate, printEndDate))}</p>
           </div>
           <table>
             <thead>
@@ -528,7 +527,7 @@ export default function BankAccounts() {
                 ) : (
                   rows.map((tx) => (
                     <tr key={tx.id} className="border-b border-border/40 hover:bg-muted/30 transition-colors">
-                      <td className="px-5 py-3.5 text-sm text-muted-foreground">{tx.date}</td>
+                      <td className="px-5 py-3.5 text-sm text-muted-foreground">{formatDisplayDate(tx.date)}</td>
                       <td className="px-5 py-3.5">
                         <StatusBadge status={tx.type === "inflow" ? "Inflow" : "Outflow"} />
                       </td>

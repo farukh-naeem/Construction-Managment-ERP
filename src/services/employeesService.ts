@@ -21,6 +21,8 @@ export interface ApiEmployee {
   machineId?: string;
   totalPaid?: number;
   totalDue?: number;
+  /** Advance handed over beyond everything earned so far — the receivable mirror of totalDue. */
+  totalAdvance?: number;
   createdAt?: string;
   /** User-specified "YYYY-MM-DD" date the employee actually joined; overrides createdAt as the No-Data cutoff. */
   joiningDate?: string;

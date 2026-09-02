@@ -25,6 +25,8 @@ export interface EmployeePayload {
   machineId?: string;
   totalPaid?: number;
   totalDue?: number;
+  /** Advance handed over beyond everything earned so far — the receivable mirror of totalDue. */
+  totalAdvance?: number;
   createdAt?: string;
   /** User-specified "YYYY-MM-DD" date the employee actually joined; overrides createdAt as the No-Data cutoff. */
   joiningDate?: string;
@@ -76,7 +78,7 @@ function toPayload(
     endingDate?: string;
   },
   projectName?: string,
-  totals?: { totalPaid: number; totalDue: number }
+  totals?: { totalPaid: number; totalDue: number; totalAdvance?: number }
 ): EmployeePayload {
   return {
     id: doc._id.toString(),
@@ -92,6 +94,7 @@ function toPayload(
     machineId: doc.machineId?.toString(),
     totalPaid: totals?.totalPaid,
     totalDue: totals?.totalDue,
+    totalAdvance: totals?.totalAdvance,
     createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : undefined,
     joiningDate: doc.joiningDate,
     endingDate: doc.endingDate,
@@ -151,7 +154,7 @@ export async function listEmployees(
     docs.map((d) => getEmployeeTotals(d._id.toString(), { startDate: options?.startDate, endDate: options?.endDate }))
   );
   const totalsList = totalsResults.map((r) =>
-    r.status === "fulfilled" ? r.value : { totalPaid: 0, totalDue: 0 }
+    r.status === "fulfilled" ? r.value : { totalPaid: 0, totalDue: 0, totalAdvance: 0 }
   );
   const month = options?.month?.trim();
   let snapshots: (MonthlySnapshot | undefined)[] = [];
@@ -162,7 +165,7 @@ export async function listEmployees(
     snapshots = snapshotResults.map((r) => (r.status === "fulfilled" ? r.value : undefined));
   }
   return docs.map((doc, i) => ({
-    ...toPayload(doc, projectMap.get(doc.projectId.toString()), { totalPaid: totalsList[i].totalPaid, totalDue: totalsList[i].totalDue }),
+    ...toPayload(doc, projectMap.get(doc.projectId.toString()), { totalPaid: totalsList[i].totalPaid, totalDue: totalsList[i].totalDue, totalAdvance: totalsList[i].totalAdvance }),
     ...(snapshots[i] && { snapshot: snapshots[i] }),
   }));
 }

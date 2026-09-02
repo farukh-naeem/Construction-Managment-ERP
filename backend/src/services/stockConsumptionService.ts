@@ -16,6 +16,7 @@ export interface ConsumptionItemPayload {
 export interface StockConsumptionPayload {
   id: string;
   projectId: string;
+  machineId?: string;
   date: string;
   remarks?: string;
   items: ConsumptionItemPayload[];
@@ -55,6 +56,7 @@ function assertUniqueItems(items: { itemId: string; unit: string; quantityUsed: 
 async function buildPayload(doc: {
   _id: mongoose.Types.ObjectId;
   projectId: mongoose.Types.ObjectId;
+  machineId?: mongoose.Types.ObjectId;
   date: string;
   remarks?: string;
   items: { itemId: mongoose.Types.ObjectId; unit?: string; quantityUsed: number }[];
@@ -66,6 +68,7 @@ async function buildPayload(doc: {
   return {
     id: doc._id.toString(),
     projectId: doc.projectId.toString(),
+    machineId: doc.machineId?.toString(),
     date: doc.date,
     remarks: doc.remarks,
     items: doc.items.map((i) => {
@@ -187,6 +190,9 @@ export async function updateStockConsumption(
 
   const existing = await StockConsumptionEntry.findById(id).lean();
   if (!existing) throw new Error("Consumption entry not found");
+  if (existing.machineId) {
+    throw new Error("This diesel consumption is linked to a machine ledger entry; edit it from the machine ledger.");
+  }
 
   const session = await mongoose.startSession();
   let result: StockConsumptionPayload;
@@ -269,6 +275,9 @@ export async function deleteStockConsumption(
 
   const existing = await StockConsumptionEntry.findById(id).lean();
   if (!existing) throw new Error("Consumption entry not found");
+  if (existing.machineId) {
+    throw new Error("This diesel consumption is linked to a machine ledger entry; edit it from the machine ledger.");
+  }
 
   const session = await mongoose.startSession();
   try {

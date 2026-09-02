@@ -33,7 +33,26 @@ export interface ApiItemConsumptionLedgerEntry {
   runningBalance: number;
 }
 
-export type ApiItemLedgerRow = ApiItemLedgerEntry | ApiItemConsumptionLedgerEntry;
+/** Stock sold to a customer. Reduces stock like consumption, but carries a price and a buyer. */
+export interface ApiItemSaleLedgerEntry {
+  type: "sale";
+  id: string;
+  saleId: string;
+  date: string;
+  customerId: string;
+  customerName: string;
+  quantitySold: number;
+  unit?: string;
+  unitPrice: number;
+  totalPrice: number;
+  remarks?: string;
+  runningBalance: number;
+}
+
+export type ApiItemLedgerRow =
+  | ApiItemLedgerEntry
+  | ApiItemConsumptionLedgerEntry
+  | ApiItemSaleLedgerEntry;
 
 export interface CreateItemLedgerInput {
   vendorId: string;
@@ -47,6 +66,14 @@ export interface CreateItemLedgerInput {
   paymentMethod: "Cash" | "Bank" | "Online";
   referenceId?: string;
   remarks?: string;
+}
+
+export interface BulkItemLedgerEntry extends CreateItemLedgerInput { itemId: string }
+
+export async function createItemLedgerEntriesBulk(input: {
+  projectId: string; entries: BulkItemLedgerEntry[];
+}): Promise<{ created: number }> {
+  return api("/api/consumable-items/bulk-ledger", { method: "POST", body: JSON.stringify(input) });
 }
 
 export interface UpdateItemLedgerInput {

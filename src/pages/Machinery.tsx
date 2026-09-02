@@ -4,6 +4,7 @@ import Layout from "@/components/Layout";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { formatCurrencyDecimal } from "@/lib/mock-data";
+import { formatDisplayDate } from "@/lib/pktDate";
 import { useAuth } from "@/context/AuthContext";
 import { useSelectedProject } from "@/context/SelectedProjectContext";
 import { useProjects } from "@/hooks/useProjects";
@@ -11,6 +12,7 @@ import { useMachines } from "@/hooks/useMachines";
 import { useMachinesRunningBill } from "@/hooks/useMachinesRunningBill";
 import { AddMachineDialog } from "@/components/dialogs/AddMachineDialog";
 import { EditMachineDialog } from "@/components/dialogs/EditMachineDialog";
+import { BulkMachineEntryDialog } from "@/components/dialogs/BulkMachineEntryDialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -67,9 +69,7 @@ function formatHoursCell(n: number): string {
 }
 
 function formatPeriodLabel(ymd: string): string {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
-  const d = new Date(`${ymd}T12:00:00`);
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return formatDisplayDate(ymd);
 }
 
 function cellMoney(n: number, blankWhenZero = false): string {
@@ -119,6 +119,7 @@ export default function Machinery() {
   const { projects } = useProjects();
   const { selectedProjectId, setSelectedProjectId } = useSelectedProject();
   const [addOpen, setAddOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [viewMode, setViewMode] = useState<ViewMode>("standard");
@@ -274,7 +275,7 @@ export default function Machinery() {
         printProjectName={projectName}
         subtitle={
           viewMode === "runningBill"
-            ? `${subtitle} · Running bill ${periodStart} → ${periodEnd}`
+            ? `${subtitle} · Running bill ${formatDisplayDate(periodStart)} → ${formatDisplayDate(periodEnd)}`
             : subtitle
         }
         printTargetId="machinery-table"
@@ -299,9 +300,10 @@ export default function Machinery() {
             : undefined
         }
         actions={
-          <Button variant="warning" size="sm" onClick={() => setAddOpen(true)} disabled={!canAdd}>
-            <Plus className="h-4 w-4 mr-1" />Add Machine
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setBulkOpen(true)} disabled={!canAdd}>Bulk Entry</Button>
+            <Button variant="warning" size="sm" onClick={() => setAddOpen(true)} disabled={!canAdd}><Plus className="h-4 w-4 mr-1" />Add Machine</Button>
+          </div>
         }
       />
       <AddMachineDialog
@@ -312,6 +314,7 @@ export default function Machinery() {
         projects={projects.map((p) => ({ id: p.id, name: p.name }))}
         onSuccess={handleSuccess}
       />
+      <BulkMachineEntryDialog open={bulkOpen} onOpenChange={setBulkOpen} projectId={effectiveProjectId} onSuccess={handleSuccess} />
       <EditMachineDialog
         open={editOpen}
         onOpenChange={setEditOpen}

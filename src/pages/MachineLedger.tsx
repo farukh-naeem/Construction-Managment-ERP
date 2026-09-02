@@ -4,6 +4,7 @@ import Layout from "@/components/Layout";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
 import { formatCurrencyDecimal } from "@/lib/mock-data";
+import { formatDisplayDate } from "@/lib/pktDate";
 import { getMachine } from "@/services/machinesService";
 import { useMachineLedger } from "@/hooks/useMachineLedger";
 import { AddMachineLedgerEntryDialog } from "@/components/dialogs/AddMachineLedgerEntryDialog";
@@ -27,6 +28,7 @@ import { toast } from "sonner";
 import { deleteMachineLedgerEntry, deleteMachinePayment } from "@/services/machinesService";
 import { useAuth } from "@/context/AuthContext";
 import type { ApiMachineWithTotals, ApiMachineLedgerEntryRow, ApiMachineLedgerPaymentRow } from "@/services/machinesService";
+import { useDieselItem } from "@/hooks/useDieselItem";
 
 const DEFAULT_PAGE_SIZE = 12;
 const PAGE_SIZE_OPTIONS = [12, 24, 50, 100];
@@ -34,13 +36,14 @@ const PAGE_SIZE_OPTIONS = [12, 24, 50, 100];
 export default function MachineLedger() {
   const { machineId } = useParams();
   const [searchParams] = useSearchParams();
-  const fromLiabilities = searchParams.get("returnTo") === "liabilities";
-  const backToPath = fromLiabilities ? "/liabilities" : "/machinery";
-  const backLabel = fromLiabilities ? "Back to Liabilities" : "Back to Machinery";
+  const returnTo = searchParams.get("returnTo");
+  const backToPath = returnTo === "liabilities" ? "/liabilities" : returnTo === "receivables" ? "/receivables" : "/machinery";
+  const backLabel = returnTo === "liabilities" ? "Back to Liabilities" : returnTo === "receivables" ? "Back to Receivables" : "Back to Machinery";
   const { user: currentUser } = useAuth();
   const canDeleteEntry = currentUser?.role !== "Site Manager";
 
   const [machine, setMachine] = useState<ApiMachineWithTotals | null>(null);
+  const { dieselItem, refetch: refetchDiesel } = useDieselItem(machine?.projectId);
   const [machineLoading, setMachineLoading] = useState(true);
   const [addEntryOpen, setAddEntryOpen] = useState(false);
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
@@ -94,6 +97,7 @@ export default function MachineLedger() {
     if (machineId) {
       getMachine(machineId).then(setMachine);
     }
+    void refetchDiesel();
   };
 
   const handlePageSizeChange = (size: number) => {
@@ -195,6 +199,7 @@ export default function MachineLedger() {
         open={addEntryOpen}
         onOpenChange={setAddEntryOpen}
         machine={machine}
+        dieselItem={dieselItem}
         onSuccess={handleSuccess}
       />
       <MachinePaymentDialog
@@ -209,7 +214,7 @@ export default function MachineLedger() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete ledger entry?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove the entry ({deleteEntryState?.date}, {deleteEntryState?.hoursWorked} hrs, {formatCurrencyDecimal(deleteEntryState?.totalCost ?? 0)}). Balances will be recalculated. This action cannot be undone.
+              This will remove the entry ({formatDisplayDate(deleteEntryState?.date)}, {deleteEntryState?.hoursWorked} hrs, {formatCurrencyDecimal(deleteEntryState?.totalCost ?? 0)}). Balances will be recalculated. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -225,7 +230,7 @@ export default function MachineLedger() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete payment?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove the payment record ({deletePaymentState?.date}, {formatCurrencyDecimal(deletePaymentState?.amount ?? 0)}). Balances will be recalculated. This action cannot be undone.
+              This will remove the payment record ({formatDisplayDate(deletePaymentState?.date)}, {formatCurrencyDecimal(deletePaymentState?.amount ?? 0)}). Balances will be recalculated. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -275,6 +280,7 @@ export default function MachineLedger() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5 mb-6 print-hidden">
         <StatCard label="Total Hours" value={totalHours.toString()} variant="info" />
+        <StatCard label="Total Diesel (L)" value={(machine.totalDiesel ?? 0).toString()} variant="info" />
         <StatCard label="Total Cost" value={formatCurrencyDecimal(totalCost)} />
         <StatCard label="Total Paid" value={formatCurrencyDecimal(totalPaid)} variant="success" />
         {advance > 0 ? (
@@ -326,7 +332,7 @@ export default function MachineLedger() {
                 rows.map((row) =>
                   row.type === "entry" ? (
                     <tr key={`entry-${row.id}`} className="border-b border-border hover:bg-accent/50 transition-colors">
-                      <td className="px-4 py-3 text-sm">{row.date}</td>
+                      <td className="px-4 py-3 text-sm">{formatDisplayDate(row.date)}</td>
                       <td className="px-4 py-3 text-sm text-muted-foreground">{row.remarks || "—"}</td>
                       <td className="px-4 py-3 text-right font-mono text-sm">{row.hoursWorked}</td>
                       <td className="px-4 py-3 text-right font-mono text-sm font-bold">{formatCurrencyDecimal(row.totalCost)}</td>
@@ -348,7 +354,7 @@ export default function MachineLedger() {
                     </tr>
                   ) : (
                     <tr key={`payment-${row.id}`} className="border-b border-border hover:bg-accent/50 transition-colors bg-muted/30">
-                      <td className="px-4 py-3 text-sm">{row.date}</td>
+                      <td className="px-4 py-3 text-sm">{formatDisplayDate(row.date)}</td>
                       <td className="px-4 py-3 text-sm text-muted-foreground">
                         Payment{row.paymentMethod ? ` (${row.paymentMethod})` : ""}{row.referenceId ? ` — ${row.referenceId}` : ""}
                       </td>

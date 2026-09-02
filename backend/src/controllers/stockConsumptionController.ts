@@ -46,7 +46,7 @@ export async function update(req: AuthRequest, res: Response) {
     res.json(entry);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to update consumption";
-    const status = msg.includes("not found") ? 404 : msg.includes("Insufficient") ? 400 : 500;
+    const status = msg.includes("not found") ? 404 : msg.includes("Insufficient") || msg.includes("linked to a machine") ? 400 : 500;
     res.status(status).json({ error: msg });
   }
 }
@@ -61,7 +61,7 @@ export async function remove(req: AuthRequest, res: Response) {
     res.status(204).send();
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to delete consumption";
-    const status = msg.includes("not found") ? 404 : 500;
+    const status = msg.includes("not found") ? 404 : msg.includes("linked to a machine") ? 400 : 500;
     res.status(status).json({ error: msg });
   }
 }

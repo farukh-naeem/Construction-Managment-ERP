@@ -5,9 +5,11 @@ import {
   createConsumableItem,
   updateConsumableItem,
   deleteConsumableItem,
+  getDieselItem,
   type CreateConsumableItemInput,
   type UpdateConsumableItemInput,
 } from "../services/consumableItemService.js";
+import { createItemLedgerEntriesBulk, BulkItemValidationError, type BulkItemLedgerInput } from "../services/itemLedgerService.js";
 import type { AuthRequest } from "../middleware/auth.js";
 
 export async function list(req: AuthRequest, res: Response) {
@@ -28,6 +30,31 @@ export async function getOne(req: AuthRequest, res: Response) {
     res.json(item);
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Failed to get item" });
+  }
+}
+
+export async function getDiesel(req: AuthRequest, res: Response) {
+  try {
+    const actor = req.user!;
+    const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+    res.json({ item: await getDieselItem({ userId: actor.userId, role: actor.role }, projectId) });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to find diesel item" });
+  }
+}
+
+export async function bulkCreateLedger(req: AuthRequest, res: Response) {
+  try {
+    const actor = req.user!;
+    res.status(201).json(await createItemLedgerEntriesBulk(
+      { userId: actor.userId, email: actor.email, role: actor.role }, req.body as BulkItemLedgerInput
+    ));
+  } catch (err) {
+    if (err instanceof BulkItemValidationError) {
+      res.status(400).json({ error: err.message, rows: err.rows }); return;
+    }
+    const message = err instanceof Error ? err.message : "Failed to create bulk ledger entries";
+    res.status(400).json({ error: message });
   }
 }
 

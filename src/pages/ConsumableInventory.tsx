@@ -11,8 +11,10 @@ import { useSelectedProject } from "@/context/SelectedProjectContext";
 import { AddConsumableItemDialog } from "@/components/dialogs/AddConsumableItemDialog";
 import { EditConsumableItemDialog } from "@/components/dialogs/EditConsumableItemDialog";
 import { StockConsumptionDialog } from "@/components/dialogs/StockConsumptionDialog";
+import { SellItemsDialog } from "@/components/dialogs/SellItemsDialog";
+import { BulkAddLedgerEntryDialog } from "@/components/dialogs/BulkAddLedgerEntryDialog";
 import { Button } from "@/components/ui/button";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, ShoppingCart } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -36,12 +38,16 @@ import {
 import { toast } from "sonner";
 import { deleteConsumableItem, type ApiConsumableItem } from "@/services/consumableItemsService";
 import { deleteStockConsumption, type ApiStockConsumption } from "@/services/stockConsumptionService";
+import { useCustomerSales } from "@/hooks/useCustomerSales";
+import { useSalesReport } from "@/hooks/useSalesReport";
+import { SALES_REPORT_COLUMNS, SALES_REPORT_GROUPS, SALES_REPORT_PRINT_CSS } from "./salesReportColumns";
+import { deleteCustomerSale, type ApiCustomerSale } from "@/services/customerSaleService";
 import { useTablePagination } from "@/hooks/useTablePagination";
 import { TablePagination } from "@/components/TablePagination";
 import { useVendors } from "@/hooks/useVendors";
 import { getConsumableRunningBill, type ApiConsumableRunningBill } from "@/services/consumableRunningBillService";
 import PrintExportButton from "@/components/PrintExportButton";
-import { todayPKT } from "@/lib/pktDate";
+import { formatDisplayDate, todayPKT } from "@/lib/pktDate";
 
 export default function ConsumableInventory() {
   const { user } = useAuth();
@@ -55,13 +61,26 @@ export default function ConsumableInventory() {
   const { items, loading: itemsLoading, refetch: refetchItems } = useConsumableItems(effectiveProjectId);
   const { entries: consumptionEntries, loading: consumptionLoading, refetch: refetchConsumption } = useStockConsumption(effectiveProjectId);
   const { vendors } = useVendors(effectiveProjectId);
+  const { sales, loading: salesLoading, refetch: refetchSales } = useCustomerSales(effectiveProjectId);
 
   const canEditDelete = !isSiteManager;
 
   const [addItemOpen, setAddItemOpen] = useState(false);
+  const [bulkPurchaseOpen, setBulkPurchaseOpen] = useState(false);
   const [editItem, setEditItem] = useState<ApiConsumableItem | null>(null);
   const [deleteItemState, setDeleteItemState] = useState<ApiConsumableItem | null>(null);
   const [consumptionOpen, setConsumptionOpen] = useState(false);
+  const [sellOpen, setSellOpen] = useState(false);
+  const [deleteSaleState, setDeleteSaleState] = useState<ApiCustomerSale | null>(null);
+  const [salesStart, setSalesStart] = useState("");
+  const [salesEnd, setSalesEnd] = useState("");
+  const [reportStart, setReportStart] = useState("");
+  const [reportEnd, setReportEnd] = useState("");
+  const { report, loading: reportLoading, error: reportError } = useSalesReport(
+    effectiveProjectId,
+    reportStart || undefined,
+    reportEnd || undefined
+  );
   const [editConsumption, setEditConsumption] = useState<ApiStockConsumption | null>(null);
   const [deleteConsumptionState, setDeleteConsumptionState] = useState<ApiStockConsumption | null>(null);
   const [billVendorId, setBillVendorId] = useState("");
@@ -87,6 +106,27 @@ export default function ConsumableInventory() {
 
   const itemsPagination = useTablePagination(filteredItems, { defaultPageSize: 12 });
   const consumptionPagination = useTablePagination(consumptionEntries, { defaultPageSize: 12 });
+  // Sales tab date filter — sale dates are "YYYY-MM-DD" so plain string compare is correct.
+  const filteredSales = useMemo(() => {
+    if (!salesStart && !salesEnd) return sales;
+    return sales.filter(
+      (sale) => (!salesStart || sale.date >= salesStart) && (!salesEnd || sale.date <= salesEnd)
+    );
+  }, [sales, salesStart, salesEnd]);
+
+  const salesTotals = useMemo(
+    () =>
+      filteredSales.reduce(
+        (totals, sale) => ({
+          amount: totals.amount + sale.totalAmount,
+          received: totals.received + sale.paidAmount,
+        }),
+        { amount: 0, received: 0 }
+      ),
+    [filteredSales]
+  );
+
+  const salesPagination = useTablePagination(filteredSales, { defaultPageSize: 12 });
 
   useEffect(() => {
     if (!effectiveProjectId || !billVendorId || !billStart || !billEnd) {
@@ -132,6 +172,20 @@ export default function ConsumableInventory() {
     }
   };
 
+  const handleDeleteSaleConfirm = async () => {
+    if (!deleteSaleState) return;
+    try {
+      await deleteCustomerSale(deleteSaleState.saleId);
+      toast.success("Sale deleted — stock restored");
+      setDeleteSaleState(null);
+      refetchItems();
+      refetchSales();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete sale");
+      setDeleteSaleState(null);
+    }
+  };
+
   const handleDeleteConsumptionConfirm = async () => {
     if (!deleteConsumptionState) return;
     try {
@@ -153,8 +207,12 @@ export default function ConsumableInventory() {
         subtitle="Materials that reduce with usage — per project"
         actions={
           <>
+            <Button variant="outline" size="sm" onClick={() => setBulkPurchaseOpen(true)} disabled={!effectiveProjectId}>Bulk Purchase</Button>
             <Button variant="warning" size="sm" onClick={() => setAddItemOpen(true)} disabled={!effectiveProjectId}>
               <Plus className="h-4 w-4 mr-1" /> Add Item
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setSellOpen(true)} disabled={!effectiveProjectId}>
+              <ShoppingCart className="h-4 w-4 mr-1" /> Sell Items
             </Button>
           </>
         }
@@ -194,6 +252,7 @@ export default function ConsumableInventory() {
         projectId={effectiveProjectId}
         onSuccess={refetchItems}
       />
+      <BulkAddLedgerEntryDialog open={bulkPurchaseOpen} onOpenChange={setBulkPurchaseOpen} projectId={effectiveProjectId} onSuccess={refetchItems} />
       <EditConsumableItemDialog
         open={!!editItem}
         onOpenChange={(open) => !open && setEditItem(null)}
@@ -218,6 +277,33 @@ export default function ConsumableInventory() {
           onSuccess={() => { setEditConsumption(null); refetchItems(); refetchConsumption(); }}
         />
       )}
+
+      <SellItemsDialog
+        open={sellOpen}
+        onOpenChange={setSellOpen}
+        projectId={effectiveProjectId}
+        consumableItems={items}
+        onSuccess={() => { refetchItems(); refetchSales(); }}
+      />
+
+      {/* Delete sale dialog */}
+      <AlertDialog open={!!deleteSaleState} onOpenChange={(open) => !open && setDeleteSaleState(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this sale?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This deletes every item line in the sale, restores their stock, and removes the charge from
+              {" "}{deleteSaleState?.customerName}&apos;s balance.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteSaleConfirm} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete &amp; Restore Stock
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete item dialog */}
       <AlertDialog open={!!deleteItemState} onOpenChange={(open) => !open && setDeleteItemState(null)}>
@@ -259,6 +345,8 @@ export default function ConsumableInventory() {
         <TabsList>
           <TabsTrigger value="inventory">Item list</TabsTrigger>
           <TabsTrigger value="consumption">Stock consumption</TabsTrigger>
+          <TabsTrigger value="sales">Sales</TabsTrigger>
+          <TabsTrigger value="sales-report">Sales Report</TabsTrigger>
           <TabsTrigger value="generate-bill">Generate Bill</TabsTrigger>
         </TabsList>
 
@@ -371,10 +459,10 @@ export default function ConsumableInventory() {
                   ) : (
                     consumptionPagination.paginatedItems.map((sc) => (
                       <tr key={sc.id} className="border-b border-border hover:bg-accent/50">
-                        <td className="px-4 py-3 text-sm">{sc.date}</td>
+                        <td className="px-4 py-3 text-sm">{formatDisplayDate(sc.date)}</td>
                         <td className="px-4 py-3 text-sm">{sc.items.map((i) => `${i.itemName} (${formatQuantity(i.quantityUsed)} ${i.unit})`).join(", ")}</td>
                         <td className="px-4 py-3 text-sm text-muted-foreground">{sc.remarks || "—"}</td>
-                        {canEditDelete && (
+                        {canEditDelete && !sc.machineId && (
                           <td className="px-4 py-3 text-right">
                             <div className="flex items-center justify-end gap-1">
                               <Button variant="ghost" size="icon" onClick={() => setEditConsumption(sc)}>
@@ -386,6 +474,7 @@ export default function ConsumableInventory() {
                             </div>
                           </td>
                         )}
+                        {canEditDelete && sc.machineId && <td className="px-4 py-3 text-right text-xs text-muted-foreground">Managed from machinery</td>}
                       </tr>
                     ))
                   )}
@@ -410,6 +499,242 @@ export default function ConsumableInventory() {
                 />
               </div>
             )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="sales">
+          <div className="print-hidden flex flex-wrap items-end gap-4 mt-4 border-2 border-border p-4">
+            <div>
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Start date</Label>
+              <Input className="mt-1 w-44" type="date" value={salesStart} onChange={(event) => setSalesStart(event.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">End date</Label>
+              <Input className="mt-1 w-44" type="date" value={salesEnd} min={salesStart} onChange={(event) => setSalesEnd(event.target.value)} />
+            </div>
+            {(salesStart || salesEnd) && (
+              <Button type="button" variant="outline" size="sm" onClick={() => { setSalesStart(""); setSalesEnd(""); }}>
+                Clear filter
+              </Button>
+            )}
+            <div className="ml-auto">
+              <PrintExportButton
+                title="Stock Sold to Customers"
+                subtitle={salesStart || salesEnd ? `${formatDisplayDate(salesStart, "Start")} to ${formatDisplayDate(salesEnd, "End")}` : undefined}
+                printProjectName={selectedProjectName}
+                printTargetId="consumable-sales-table"
+              />
+            </div>
+          </div>
+
+          <div id="consumable-sales-table" className="border-2 border-border mt-4">
+            <div className="border-b-2 border-border bg-secondary px-4 py-3">
+              <h2 className="text-sm font-bold uppercase tracking-wider">Stock sold to customers</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-base">
+                <thead>
+                  <tr className="border-b-2 border-border bg-primary text-primary-foreground">
+                    <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Date</th>
+                    <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Customer</th>
+                    <th className="px-4 py-2.5 text-left text-sm font-bold uppercase tracking-wider">Items sold</th>
+                    <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Amount</th>
+                    <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider">Received</th>
+                    {canEditDelete && (
+                      <th className="px-4 py-2.5 text-right text-sm font-bold uppercase tracking-wider print-hidden">Actions</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {salesLoading ? (
+                    <tr><td colSpan={canEditDelete ? 6 : 5} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>
+                  ) : !effectiveProjectId ? (
+                    <tr><td colSpan={canEditDelete ? 6 : 5} className="px-4 py-8 text-center text-muted-foreground">Select a project.</td></tr>
+                  ) : filteredSales.length === 0 ? (
+                    <tr>
+                      <td colSpan={canEditDelete ? 6 : 5} className="px-4 py-8 text-center text-muted-foreground">
+                        {sales.length === 0
+                          ? "No stock sold yet. Use \u201CSell Items\u201D to record a sale."
+                          : "No sales in the selected date range."}
+                      </td>
+                    </tr>
+                  ) : (
+                    salesPagination.paginatedItems.map((sale) => (
+                      <tr key={sale.saleId} className="border-b border-border hover:bg-accent/50">
+                        <td className="px-4 py-3 text-sm">{formatDisplayDate(sale.date)}</td>
+                        <td className="px-4 py-3 text-sm">
+                          <Link to={`/customers/${sale.customerId}`} className="font-bold hover:underline">
+                            {sale.customerName}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          {sale.items.map((i) => `${i.itemName} (${formatQuantity(i.quantity)} ${i.unit})`).join(", ")}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-sm text-destructive">{formatCurrency(sale.totalAmount)}</td>
+                        <td className="px-4 py-3 text-right font-mono text-sm text-success">
+                          {sale.paidAmount > 0 ? formatCurrency(sale.paidAmount) : "—"}
+                        </td>
+                        {canEditDelete && (
+                          <td className="px-4 py-3 text-right print-hidden">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeleteSaleState(sale)}
+                              disabled={sale.paidAmount > 0}
+                              title={sale.paidAmount > 0 ? "Delete the linked payment from the customer ledger first" : "Delete sale"}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                {filteredSales.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t-2 border-border bg-muted/30 font-bold">
+                      <td colSpan={3} className="px-4 py-3 text-right text-sm">Total</td>
+                      <td className="px-4 py-3 text-right font-mono text-sm text-destructive">{formatCurrency(salesTotals.amount)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-sm text-success">
+                        {salesTotals.received > 0 ? formatCurrency(salesTotals.received) : "—"}
+                      </td>
+                      {canEditDelete && <td className="print-hidden" />}
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+            {effectiveProjectId && filteredSales.length > 0 && (
+              <div className="print-hidden">
+                <TablePagination
+                  pageSize={salesPagination.pageSize}
+                  onPageSizeChange={salesPagination.setPageSize}
+                  page={salesPagination.page}
+                  totalPages={salesPagination.totalPages}
+                  totalItems={salesPagination.totalItems}
+                  onPrevious={salesPagination.goPrev}
+                  onNext={salesPagination.goNext}
+                  canPrevious={salesPagination.canPrev}
+                  canNext={salesPagination.canNext}
+                  pageSizeOptions={salesPagination.pageSizeOptions}
+                  startIndexOneBased={salesPagination.startIndexOneBased}
+                  endIndex={salesPagination.endIndex}
+                />
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="sales-report">
+          <div className="print-hidden flex flex-wrap items-end gap-4 mt-4 border-2 border-border p-4">
+            <div>
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Start date</Label>
+              <Input className="mt-1 w-44" type="date" value={reportStart} onChange={(event) => setReportStart(event.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">End date</Label>
+              <Input className="mt-1 w-44" type="date" value={reportEnd} min={reportStart} onChange={(event) => setReportEnd(event.target.value)} />
+            </div>
+            {(reportStart || reportEnd) && (
+              <Button type="button" variant="outline" size="sm" onClick={() => { setReportStart(""); setReportEnd(""); }}>
+                Clear filter
+              </Button>
+            )}
+            <div className="ml-auto">
+              <PrintExportButton
+                title="Purchase & Sales Report"
+                subtitle={reportStart || reportEnd ? `${formatDisplayDate(reportStart, "Start")} to ${formatDisplayDate(reportEnd, "End")}` : undefined}
+                printProjectName={selectedProjectName}
+                printTargetId="consumable-sales-report"
+                additionalPrintCss={SALES_REPORT_PRINT_CSS}
+              />
+            </div>
+          </div>
+
+          <div id="consumable-sales-report" className="border-2 border-border mt-4">
+            <div className="border-b-2 border-border bg-secondary px-4 py-3">
+              <h2 className="text-sm font-bold uppercase tracking-wider">Purchase &amp; sales report</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Cost of items sold is valued at the latest purchase rate on or before the sale date.
+                Each day&apos;s project expense is charged once, to that day&apos;s first sale.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="sales-report-table w-full min-w-[1080px] table-fixed border-collapse">
+                <colgroup>
+                  {SALES_REPORT_COLUMNS.map((col) => (
+                    <col key={col.key} style={{ width: col.width }} />
+                  ))}
+                </colgroup>
+                <thead>
+                  <tr className="bg-primary text-primary-foreground">
+                    {SALES_REPORT_GROUPS.map((group, index) => (
+                      <th
+                        key={group.label || `group-${index}`}
+                        colSpan={group.span}
+                        className={`px-2 py-2 text-center text-[10px] font-bold uppercase tracking-wider break-words border-b border-primary-foreground/30 ${index > 0 ? "group-start border-l-2 border-border" : ""}`}
+                      >
+                        {group.label}
+                      </th>
+                    ))}
+                  </tr>
+                  <tr className="border-b-2 border-border bg-primary text-primary-foreground">
+                    {SALES_REPORT_COLUMNS.map((col) => (
+                      <th
+                        key={col.key}
+                        className={`px-1.5 py-2 text-[10px] font-bold uppercase leading-tight break-words ${col.align === "right" ? "text-right" : "text-left"} ${col.groupStart ? "group-start border-l-2 border-border" : ""}`}
+                      >
+                        {col.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportLoading ? (
+                    <tr><td colSpan={SALES_REPORT_COLUMNS.length} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>
+                  ) : !effectiveProjectId ? (
+                    <tr><td colSpan={SALES_REPORT_COLUMNS.length} className="px-4 py-8 text-center text-muted-foreground">Select a project.</td></tr>
+                  ) : reportError ? (
+                    <tr><td colSpan={SALES_REPORT_COLUMNS.length} className="px-4 py-8 text-center text-destructive">{reportError}</td></tr>
+                  ) : !report || report.rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={SALES_REPORT_COLUMNS.length} className="px-4 py-8 text-center text-muted-foreground">
+                        No purchases, sales or expenses in this period.
+                      </td>
+                    </tr>
+                  ) : (
+                    report.rows.map((row) => (
+                      <tr key={`${row.kind}-${row.id}`} className="border-b border-border hover:bg-accent/50 transition-colors">
+                        {SALES_REPORT_COLUMNS.map((col) => (
+                          <td
+                            key={col.key}
+                            className={`px-1.5 py-2 text-[10px] ${col.align === "right" ? "text-right font-mono tabular-nums whitespace-nowrap" : "break-words"} ${col.groupStart ? "group-start border-l-2 border-border" : ""} ${col.cellClass?.(row) ?? ""}`}
+                          >
+                            {col.cell(row)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                {report && report.rows.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t-2 border-border bg-muted/30 font-bold">
+                      <td colSpan={3} className="px-1.5 py-2.5 text-right text-[10px]">Total</td>
+                      {SALES_REPORT_COLUMNS.slice(3).map((col) => (
+                        <td
+                          key={col.key}
+                          className={`px-1.5 py-2.5 text-[10px] ${col.align === "right" ? "text-right font-mono tabular-nums whitespace-nowrap" : "break-words"} ${col.groupStart ? "group-start border-l-2 border-border" : ""} ${col.totalClass?.(report.totals) ?? ""}`}
+                        >
+                          {col.total ? col.total(report.totals) : null}
+                        </td>
+                      ))}
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
           </div>
         </TabsContent>
 
@@ -452,7 +777,7 @@ export default function ConsumableInventory() {
                     <p><strong>Project Name:</strong> {selectedProjectName}</p>
                     <p className="sm:text-right">{billLabel}</p>
                     <p><strong>Vendor:</strong> {runningBill.vendorName}</p>
-                    <p className="sm:text-right"><strong>Date:</strong> {billEnd}</p>
+                    <p className="sm:text-right"><strong>Date:</strong> {formatDisplayDate(billEnd)}</p>
                   </div>
                 </header>
                 <div className="mb-3 flex justify-end print-hidden">

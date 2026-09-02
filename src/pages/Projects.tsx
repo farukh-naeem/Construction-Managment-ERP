@@ -3,6 +3,7 @@ import Layout from "@/components/Layout";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
 import { formatCurrency } from "@/lib/mock-data";
+import { formatDisplayDate } from "@/lib/pktDate";
 import { useAuth } from "@/context/AuthContext";
 import { useProjects } from "@/hooks/useProjects";
 import { CreateProjectDialog } from "@/components/dialogs/CreateProjectDialog";
@@ -145,7 +146,7 @@ function ProjectCard({ p, summary, valuesLoading, canEdit, canDelete, onEdit, on
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Calendar className="h-3.5 w-3.5 shrink-0" />
-            <span>{p.startDate} → {p.endDate}</span>
+            <span>{formatDisplayDate(p.startDate)} → {formatDisplayDate(p.endDate)}</span>
           </div>
         </CardContent>
       </Link>

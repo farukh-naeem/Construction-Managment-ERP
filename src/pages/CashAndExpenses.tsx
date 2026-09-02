@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
 import type { CashExpensesEntityType } from "@/services/cashExpensesReportService";
 import { CashExpensesLedgerDialog } from "@/components/dialogs/CashExpensesLedgerDialog";
-import { todayPKT } from "@/lib/pktDate";
+import { formatDisplayDate, formatDisplayDateRange, todayPKT } from "@/lib/pktDate";
 
 const ENTITY_TYPE_LABELS: Record<CashExpensesEntityType, string> = {
   Consumable: "Consumable",
@@ -112,7 +112,7 @@ export default function CashAndExpenses() {
 
   const subtitle = effectiveProjectId ? `Report — ${selectedProjectName}` : "Report — Select project";
 
-  const periodLabel = startDate === endDate ? startDate : `${startDate} to ${endDate}`;
+  const periodLabel = formatDisplayDateRange(startDate, endDate);
 
   const formatReportCurrency = (value: number | null | undefined): string => {
     if (!value) return "-";
@@ -301,7 +301,7 @@ export default function CashAndExpenses() {
                         className={row.isOpeningRow ? "cash-row-strong font-bold" : undefined}
                       >
                         <td className={`${tdBase} text-muted-foreground`}>
-                          {row.date || "-"}
+                          {formatDisplayDate(row.date, "-")}
                         </td>
                         <td className={`${tdBase} text-muted-foreground`}>
                           {row.isOpeningRow

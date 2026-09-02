@@ -6,6 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import { Input } from "@/components/ui/input";
 import { getBankAccountLedger, type BankAccountLedgerResult } from "@/services/bankTransactionService";
 import { formatCurrency } from "@/lib/mock-data";
+import { formatDisplayDate } from "@/lib/pktDate";
 
 const RECEIVED_HEAD_KEY = "received";
 
@@ -108,7 +109,7 @@ export default function BankAccountLedger() {
         <div id="bank-account-ledger" className="rounded-xl border bg-card overflow-x-auto">
           <table className="min-w-max w-full text-sm">
             <thead><tr className="border-b bg-muted/10 text-muted-foreground"><th className="p-3 text-left">Date</th><th className="p-3 text-left">Reference / Remarks</th><th className="p-3 text-right">{selectedHead.label}</th><th className="p-3 text-right">Balance</th></tr></thead>
-            <tbody>{focusedRows.length ? focusedRows.map((row) => <tr key={row.id} className="border-b"><td className="p-3">{row.date}</td><td className="p-3">{row.particulars}</td><td className="p-3 text-right">{formatCurrency(row.amount)}</td><td className="p-3 text-right font-mono font-medium">{formatCurrency(row.balance)}</td></tr>) : <tr><td colSpan={4} className="p-6 text-center text-muted-foreground">No transactions for this head in the selected date range.</td></tr>}</tbody>
+            <tbody>{focusedRows.length ? focusedRows.map((row) => <tr key={row.id} className="border-b"><td className="p-3">{formatDisplayDate(row.date)}</td><td className="p-3">{row.particulars}</td><td className="p-3 text-right">{formatCurrency(row.amount)}</td><td className="p-3 text-right font-mono font-medium">{formatCurrency(row.balance)}</td></tr>) : <tr><td colSpan={4} className="p-6 text-center text-muted-foreground">No transactions for this head in the selected date range.</td></tr>}</tbody>
             <tfoot><tr className="border-t-2 bg-muted/30 font-bold"><td colSpan={2} className="p-3 text-right">Total</td><td className="p-3 text-right">{formatCurrency(focusedTotal)}</td><td className="p-3" /></tr></tfoot>
           </table>
         </div>
@@ -116,7 +117,7 @@ export default function BankAccountLedger() {
         <div id="bank-account-ledger" className="rounded-xl border bg-card overflow-x-auto">
           <table className="min-w-max w-full text-sm">
             <thead><tr className="border-b bg-muted/10 text-muted-foreground"><th className="p-3 text-left">Date</th><th className="p-3 text-left">Reference / Remarks</th><th className="p-3 text-right"><button type="button" onClick={() => selectHead(RECEIVED_HEAD_KEY)} className="hover:text-primary hover:underline">Received</button></th>{ledger.columns.map((column) => <th key={column.key} className="p-3 text-right"><button type="button" onClick={() => selectHead(column.key)} className="hover:text-primary hover:underline">{column.label}</button></th>)}<th className="p-3 text-right">Balance</th></tr></thead>
-            <tbody>{displayedCombinedRows.map((row) => <tr key={row.id} className="border-b"><td className="p-3">{row.date}</td><td className="p-3">{row.particulars}</td><td className="p-3 text-right">{row.received ? formatCurrency(row.received) : "—"}</td>{ledger.columns.map((column) => <td key={column.key} className="p-3 text-right">{row.outflows[column.key] ? formatCurrency(row.outflows[column.key]) : "—"}</td>)}<td className="p-3 text-right font-mono font-medium">{formatCurrency(row.balance)}</td></tr>)}</tbody>
+            <tbody>{displayedCombinedRows.map((row) => <tr key={row.id} className="border-b"><td className="p-3">{formatDisplayDate(row.date)}</td><td className="p-3">{row.particulars}</td><td className="p-3 text-right">{row.received ? formatCurrency(row.received) : "—"}</td>{ledger.columns.map((column) => <td key={column.key} className="p-3 text-right">{row.outflows[column.key] ? formatCurrency(row.outflows[column.key]) : "—"}</td>)}<td className="p-3 text-right font-mono font-medium">{formatCurrency(row.balance)}</td></tr>)}</tbody>
             <tfoot><tr className="border-t-2 bg-muted/30 font-bold"><td colSpan={2} className="p-3 text-right">Total</td><td className="p-3 text-right">{formatCurrency(combinedTotals.received)}</td>{ledger.columns.map((column) => <td key={column.key} className="p-3 text-right">{formatCurrency(combinedTotals.outflows[column.key] ?? 0)}</td>)}<td className="p-3" /></tr></tfoot>
           </table>
         </div>

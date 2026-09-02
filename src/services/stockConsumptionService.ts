@@ -10,6 +10,7 @@ export interface ApiConsumptionItem {
 export interface ApiStockConsumption {
   id: string;
   projectId: string;
+  machineId?: string;
   date: string;
   remarks?: string;
   items: ApiConsumptionItem[];

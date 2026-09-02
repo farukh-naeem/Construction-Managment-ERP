@@ -3,12 +3,16 @@ import { Machine } from "../models/Machine.js";
 import { MachineLedgerEntry } from "../models/MachineLedgerEntry.js";
 import { MachinePayment } from "../models/MachinePayment.js";
 import { MachinePaymentAllocation } from "../models/MachinePaymentAllocation.js";
+import { StockConsumptionEntry } from "../models/StockConsumptionEntry.js";
+import { ConsumableItem } from "../models/ConsumableItem.js";
+import { ItemLedgerEntry } from "../models/ItemLedgerEntry.js";
 import { User } from "../models/User.js";
 import { logAudit, getProjectName } from "./auditService.js";
 import { roleDisplay } from "./authService.js";
-import { isProjectAssignedToUser } from "./projectAccessService.js";
+import { isProjectAssignedToUser, resolveSiteManagerProjectId } from "./projectAccessService.js";
 import { getMachineTotals } from "./machineService.js";
 import { rebuildMachinePaymentAllocations } from "./machinePaymentAllocationService.js";
+import { findDieselItem } from "./dieselService.js";
 
 export interface MachineLedgerEntryRow {
   type: "entry";
@@ -58,8 +62,21 @@ export interface CreateMachineEntryInput {
   machineId: string;
   date: string;
   hoursWorked: number;
+  dieselLitres?: number;
   usedBy?: string;
   remarks?: string;
+}
+
+export interface BulkMachineEntryInput {
+  projectId: string;
+  date: string;
+  entries: Array<Omit<CreateMachineEntryInput, "date">>;
+}
+
+export class BulkMachineValidationError extends Error {
+  constructor(public rows: { rowIndex: number; message: string }[]) {
+    super("Bulk validation failed");
+  }
 }
 
 export interface CreateMachinePaymentInput {
@@ -185,53 +202,10 @@ async function getMachinePreviousBalance(machineObjId: mongoose.Types.ObjectId, 
   return (entryAgg[0]?.sum ?? 0) - (paymentAgg[0]?.sum ?? 0);
 }
 
-/** Create ledger entry (hours worked). totalCost = hoursWorked * machine.hourlyRate at creation time. */
-export async function createMachineEntry(
-  actor: { userId: string; email: string; role: string },
-  input: CreateMachineEntryInput
-): Promise<MachineLedgerEntryRow> {
-  if (!mongoose.Types.ObjectId.isValid(input.machineId)) throw new Error("Invalid machine ID");
-  if (!input.date?.trim()) throw new Error("Date is required");
-  const hours = Number(input.hoursWorked);
-  if (isNaN(hours) || hours <= 0) throw new Error("Hours worked must be a positive number");
-
-  const machine = await Machine.findById(input.machineId).lean();
-  if (!machine) throw new Error("Machine not found");
-
-  if (actor.role === "site_manager") {
-    if (!(await isProjectAssignedToUser(actor.userId, machine.projectId.toString()))) {
-      throw new Error("You can only add entries for machines in your assigned projects");
-    }
-  }
-
-  const totalCost = Math.round(hours * machine.hourlyRate * 100) / 100;
-
-  const entry = await MachineLedgerEntry.create({
-    machineId: input.machineId,
-    projectId: machine.projectId,
-    date: input.date.trim(),
-    hoursWorked: hours,
-    usedBy: input.usedBy?.trim() || undefined,
-    totalCost,
-    remarks: input.remarks?.trim() || undefined,
-  });
-
-  const actorUser = await User.findById(actor.userId).lean();
-  const role = roleDisplay[actor.role as keyof typeof roleDisplay] ?? actor.role;
-  await logAudit({
-    userId: actor.userId,
-    userName: actorUser?.name ?? "Unknown",
-    userEmail: actor.email,
-    role,
-    action: "create",
-    module: "machinery_ledger",
-    entityId: entry._id.toString(),
-    projectId: machine.projectId?.toString(),
-    projectName: await getProjectName(machine.projectId?.toString()),
-    description: `Machine ledger entry: ${machine.name} — ${hours} hrs`,
-    newValue: { hoursWorked: hours, totalCost, date: entry.date },
-  });
-
+function machineEntryPayload(entry: {
+  _id: mongoose.Types.ObjectId; machineId: mongoose.Types.ObjectId; date: string; hoursWorked: number;
+  usedBy?: string; totalCost: number; remarks?: string;
+}): MachineLedgerEntryRow {
   return {
     type: "entry",
     id: entry._id.toString(),
@@ -247,6 +221,132 @@ export async function createMachineEntry(
     // only for immediate optimistic display of the single created row.
     runningTotal: entry.totalCost,
   };
+}
+
+export async function applyMachineEntry(
+  session: mongoose.ClientSession,
+  input: CreateMachineEntryInput,
+  machine: { _id: mongoose.Types.ObjectId; projectId: mongoose.Types.ObjectId; name: string; hourlyRate: number }
+) {
+  const hours = Number(input.hoursWorked);
+  const litres = Number(input.dieselLitres ?? 0);
+  const totalCost = Math.round(hours * machine.hourlyRate * 100) / 100;
+  const [entry] = await MachineLedgerEntry.create([{
+    machineId: machine._id,
+    projectId: machine.projectId,
+    date: input.date.trim(),
+    hoursWorked: hours,
+    usedBy: input.usedBy?.trim() || undefined,
+    totalCost,
+    remarks: input.remarks?.trim() || undefined,
+  }], { session });
+
+  if (litres > 0) {
+    const dieselItem = await findDieselItem(machine.projectId.toString());
+    if (!dieselItem) throw new Error('This project has no "Diesel" consumable item; add one before logging diesel.');
+    const liveItem = await ConsumableItem.findById(dieselItem._id).session(session).lean();
+    if (!liveItem || liveItem.currentStock < litres) {
+      throw new Error(`Insufficient stock for "${dieselItem.name}": available ${liveItem?.currentStock ?? 0}, requested ${litres}`);
+    }
+    const recentPurchase = await ItemLedgerEntry.findOne({ itemId: dieselItem._id })
+      .sort({ date: -1, createdAt: -1 }).session(session).select("unit").lean();
+    await StockConsumptionEntry.create([{
+      projectId: machine.projectId,
+      date: input.date.trim(),
+      machineId: machine._id,
+      machineLedgerEntryId: entry._id,
+      remarks: `Diesel — ${machine.name}`,
+      items: [{ itemId: dieselItem._id, unit: recentPurchase?.unit?.trim() || "litre", quantityUsed: litres }],
+    }], { session });
+    await ConsumableItem.updateOne({ _id: dieselItem._id }, { $inc: { currentStock: -litres } }, { session });
+  }
+  return entry;
+}
+
+function validateMachineEntry(input: CreateMachineEntryInput) {
+  if (!mongoose.Types.ObjectId.isValid(input.machineId)) throw new Error("Invalid machine ID");
+  if (!input.date?.trim()) throw new Error("Date is required");
+  const hours = Number(input.hoursWorked);
+  if (!Number.isFinite(hours) || hours <= 0) throw new Error("Hours worked must be a positive number");
+  const litres = Number(input.dieselLitres ?? 0);
+  if (!Number.isFinite(litres) || litres < 0) throw new Error("Diesel litres must be a non-negative number");
+}
+
+/** Create ledger entry (hours worked), optionally drawing diesel stock, atomically. */
+export async function createMachineEntry(
+  actor: { userId: string; email: string; role: string },
+  input: CreateMachineEntryInput
+): Promise<MachineLedgerEntryRow> {
+  validateMachineEntry(input);
+  const machine = await Machine.findById(input.machineId).lean();
+  if (!machine) throw new Error("Machine not found");
+  if (actor.role === "site_manager" && !(await isProjectAssignedToUser(actor.userId, machine.projectId.toString()))) {
+    throw new Error("You can only add entries for machines in your assigned projects");
+  }
+  const session = await mongoose.startSession();
+  let entry!: Awaited<ReturnType<typeof applyMachineEntry>>;
+  try {
+    await session.withTransaction(async () => { entry = await applyMachineEntry(session, input, machine); });
+  } finally { await session.endSession(); }
+
+  const actorUser = await User.findById(actor.userId).lean();
+  const role = roleDisplay[actor.role as keyof typeof roleDisplay] ?? actor.role;
+  await logAudit({
+    userId: actor.userId, userName: actorUser?.name ?? "Unknown", userEmail: actor.email, role,
+    action: "create", module: "machinery_ledger", entityId: entry._id.toString(),
+    projectId: machine.projectId.toString(), projectName: await getProjectName(machine.projectId.toString()),
+    description: `Machine ledger entry: ${machine.name} — ${entry.hoursWorked} hrs`,
+    newValue: { hoursWorked: entry.hoursWorked, totalCost: entry.totalCost, date: entry.date, dieselLitres: input.dieselLitres ?? 0 },
+  });
+  if ((input.dieselLitres ?? 0) > 0) {
+    await logAudit({
+      userId: actor.userId, userName: actorUser?.name ?? "Unknown", userEmail: actor.email, role,
+      action: "create", module: "stock_consumption", entityId: entry._id.toString(),
+      projectId: machine.projectId.toString(), projectName: await getProjectName(machine.projectId.toString()),
+      description: `Diesel — ${machine.name}: ${input.dieselLitres} L`,
+    });
+  }
+  return machineEntryPayload(entry);
+}
+
+export async function createMachineEntriesBulk(
+  actor: { userId: string; email: string; role: string }, input: BulkMachineEntryInput
+): Promise<{ created: number }> {
+  let projectId = input.projectId;
+  if (actor.role === "site_manager") projectId = (await resolveSiteManagerProjectId(actor.userId, projectId)) ?? "";
+  if (!projectId || !mongoose.Types.ObjectId.isValid(projectId)) throw new Error("Project is required");
+  if (!input.date?.trim()) throw new Error("Date is required");
+  const machines = await Machine.find({ projectId }).lean();
+  const byId = new Map(machines.map((m) => [m._id.toString(), m]));
+  const rows: { rowIndex: number; message: string }[] = [];
+  const entries = input.entries ?? [];
+  entries.forEach((row, rowIndex) => {
+    try {
+      validateMachineEntry({ ...row, date: input.date });
+      if (!byId.has(row.machineId)) throw new Error("Machine not found or does not belong to this project");
+    } catch (error) { rows.push({ rowIndex, message: error instanceof Error ? error.message : "Invalid row" }); }
+  });
+  if (rows.length) throw new BulkMachineValidationError(rows);
+  const totalLitres = entries.reduce((sum, row) => sum + Number(row.dieselLitres ?? 0), 0);
+  if (totalLitres > 0) {
+    const diesel = await findDieselItem(projectId);
+    if (!diesel) throw new Error('This project has no "Diesel" consumable item; add one before logging diesel.');
+    if (totalLitres > diesel.currentStock) throw new Error(`Batch diesel (${totalLitres} L) exceeds available stock (${diesel.currentStock} L)`);
+  }
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      for (const row of entries) await applyMachineEntry(session, { ...row, date: input.date }, byId.get(row.machineId)!);
+    });
+  } finally { await session.endSession(); }
+  const actorUser = await User.findById(actor.userId).lean();
+  await logAudit({
+    userId: actor.userId, userName: actorUser?.name ?? "Unknown", userEmail: actor.email,
+    role: roleDisplay[actor.role as keyof typeof roleDisplay] ?? actor.role, action: "create",
+    module: "machinery_ledger", projectId, projectName: await getProjectName(projectId),
+    description: `Bulk machinery entry: ${entries.length} entries`, newValue: { count: entries.length, date: input.date },
+  });
+  return { created: entries.length };
 }
 
 /** Create payment and allocate FIFO to oldest unpaid entries. */
@@ -319,9 +419,20 @@ export async function deleteMachineEntry(
 
   const machine = await Machine.findById(entry.machineId).select("name projectId").lean();
 
-  await MachineLedgerEntry.findByIdAndDelete(entryId);
-  await MachinePaymentAllocation.deleteMany({ entryId: new mongoose.Types.ObjectId(entryId) });
-
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      const linked = await StockConsumptionEntry.find({ machineLedgerEntryId: entry._id }).session(session).lean();
+      for (const consumption of linked) {
+        for (const line of consumption.items) {
+          await ConsumableItem.findByIdAndUpdate(line.itemId, { $inc: { currentStock: line.quantityUsed } }, { session });
+        }
+      }
+      await StockConsumptionEntry.deleteMany({ machineLedgerEntryId: entry._id }, { session });
+      await MachineLedgerEntry.findByIdAndDelete(entryId, { session });
+      await MachinePaymentAllocation.deleteMany({ entryId: new mongoose.Types.ObjectId(entryId) }, { session });
+    });
+  } finally { await session.endSession(); }
   await rebuildMachinePaymentAllocations(entry.machineId.toString());
 
   const actorUser = await User.findById(actor.userId).lean();

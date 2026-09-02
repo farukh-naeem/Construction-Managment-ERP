@@ -2,12 +2,17 @@ import mongoose from "mongoose";
 import { ItemLedgerEntry } from "../models/ItemLedgerEntry.js";
 import { VendorPayment } from "../models/VendorPayment.js";
 import { StockConsumptionEntry } from "../models/StockConsumptionEntry.js";
+import { CustomerSaleEntry } from "../models/CustomerSaleEntry.js";
+import { Customer } from "../models/Customer.js";
 import { ConsumableItem } from "../models/ConsumableItem.js";
 import { Vendor } from "../models/Vendor.js";
 import { User } from "../models/User.js";
 import { logAudit, getProjectName } from "./auditService.js";
 import { roleDisplay } from "./authService.js";
 import { getFifoAllocationForVendor } from "./fifoAllocation.js";
+import { resolveSiteManagerProjectId } from "./projectAccessService.js";
+import type { IConsumableItem } from "../models/ConsumableItem.js";
+import type { IVendor } from "../models/Vendor.js";
 
 export interface ItemLedgerPayload {
   type: "purchase";
@@ -42,7 +47,23 @@ export interface ItemConsumptionLedgerPayload {
   runningBalance: number;
 }
 
-export type ItemLedgerRowPayload = ItemLedgerPayload | ItemConsumptionLedgerPayload;
+/** Stock sold to a customer. Reduces stock like consumption, but carries a price and a buyer. */
+export interface ItemSaleLedgerPayload {
+  type: "sale";
+  id: string;
+  saleId: string;
+  date: string;
+  customerId: string;
+  customerName: string;
+  quantitySold: number;
+  unit?: string;
+  unitPrice: number;
+  totalPrice: number;
+  remarks?: string;
+  runningBalance: number;
+}
+
+export type ItemLedgerRowPayload = ItemLedgerPayload | ItemConsumptionLedgerPayload | ItemSaleLedgerPayload;
 
 /** Quantities follow the same .XX (2-decimal) convention as pricing elsewhere in the app. */
 function normalizeQuantity(quantity: number): number {
@@ -77,6 +98,17 @@ export interface UpdateItemLedgerInput {
   paymentMethod?: "Cash" | "Bank" | "Online";
   referenceId?: string;
   remarks?: string;
+}
+
+export interface BulkItemLedgerInput {
+  projectId: string;
+  entries: CreateItemLedgerInput[];
+}
+
+export class BulkItemValidationError extends Error {
+  constructor(public rows: { rowIndex: number; message: string }[]) {
+    super("Bulk validation failed");
+  }
 }
 
 async function buildPayload(doc: {
@@ -141,9 +173,10 @@ export async function listItemLedger(
   if (!mongoose.Types.ObjectId.isValid(itemId)) {
     return { entries: [], total: 0 };
   }
-  const [docs, consumptionDocs] = await Promise.all([
+  const [docs, consumptionDocs, saleDocs] = await Promise.all([
     ItemLedgerEntry.find({ itemId }).sort({ date: 1, createdAt: 1 }).lean(),
     StockConsumptionEntry.find({ "items.itemId": itemId }).sort({ date: 1, createdAt: 1 }).lean(),
+    CustomerSaleEntry.find({ itemId }).sort({ date: 1, createdAt: 1 }).lean(),
   ]);
   const vendorIds = [...new Set(docs.map((d) => d.vendorId.toString()))];
   const allocationByVendor = new Map<string, Awaited<ReturnType<typeof getFifoAllocationForVendor>>>();
@@ -173,12 +206,35 @@ export async function listItemLedger(
         runningBalance: 0,
       }))
   );
-  const allRows: ItemLedgerRowPayload[] = [...payloads, ...consumptionRows].sort(
+  const customerIds = [...new Set(saleDocs.map((d) => d.customerId.toString()))];
+  const customerDocs = customerIds.length
+    ? await Customer.find({ _id: { $in: customerIds } }).select("name").lean()
+    : [];
+  const customerNames = new Map(customerDocs.map((c) => [c._id.toString(), c.name]));
+  const saleRows: ItemSaleLedgerPayload[] = saleDocs.map((doc) => ({
+    type: "sale" as const,
+    id: doc._id.toString(),
+    saleId: doc.saleId.toString(),
+    date: doc.date,
+    customerId: doc.customerId.toString(),
+    customerName: customerNames.get(doc.customerId.toString()) ?? "Unknown customer",
+    quantitySold: doc.quantity,
+    unit: doc.unit,
+    unitPrice: doc.unitPrice,
+    totalPrice: doc.totalPrice,
+    remarks: doc.remarks,
+    runningBalance: 0,
+  }));
+
+  const allRows: ItemLedgerRowPayload[] = [...payloads, ...consumptionRows, ...saleRows].sort(
     (a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id)
   );
   let balance = 0;
   for (const row of allRows) {
-    balance += row.type === "purchase" ? row.quantity : -row.quantityUsed;
+    balance +=
+      row.type === "purchase" ? row.quantity
+        : row.type === "sale" ? -row.quantitySold
+        : -row.quantityUsed;
     row.runningBalance = balance;
   }
   const total = allRows.length;
@@ -189,27 +245,67 @@ export async function listItemLedger(
   return { entries, total };
 }
 
+function validateItemLedgerInput(input: CreateItemLedgerInput) {
+  if (!input.date?.trim()) throw new Error("Date is required");
+  if (!Number.isFinite(Number(input.quantity)) || Number(input.quantity) <= 0) throw new Error("Quantity must be greater than 0");
+  if (!input.unit?.trim()) throw new Error("Unit is required");
+  if (input.unitPrice == null || !Number.isFinite(Number(input.unitPrice)) || Number(input.unitPrice) < 0) throw new Error("Unit price must be >= 0");
+  if (input.paidAmount != null && (!Number.isFinite(Number(input.paidAmount)) || Number(input.paidAmount) < 0)) throw new Error("Paid amount must be >= 0");
+  if (!input.vendorId || !mongoose.Types.ObjectId.isValid(input.vendorId)) throw new Error("Vendor is required");
+  if (!mongoose.Types.ObjectId.isValid(input.itemId)) throw new Error("Invalid item ID");
+  if (!["Cash", "Bank", "Online"].includes(input.paymentMethod)) throw new Error("Invalid payment method");
+}
+
+export async function applyItemLedgerEntry(
+  session: mongoose.ClientSession,
+  input: CreateItemLedgerInput,
+  item: IConsumableItem,
+  _vendor: IVendor
+) {
+  const quantity = normalizeQuantity(Number(input.quantity));
+  const unitPrice = Number(input.unitPrice);
+  const totalPrice = quantity * unitPrice;
+  const rawPaid = Number(input.paidAmount ?? 0);
+  const [entry] = await ItemLedgerEntry.create([{
+    projectId: item.projectId, itemId: item._id, vendorId: input.vendorId,
+    date: input.date.trim(), quantity, unit: input.unit?.trim() || undefined,
+    unitPrice, totalPrice, paidAmount: 0, remaining: totalPrice, advanceGenerated: 0,
+    biltyNumber: input.biltyNumber?.trim() || undefined,
+    vehicleNumber: input.vehicleNumber?.trim() || undefined,
+    paymentMethod: input.paymentMethod,
+    referenceId: input.referenceId?.trim() || undefined,
+    remarks: input.remarks?.trim() || undefined,
+  }], { session });
+  if (rawPaid > 0) {
+    await VendorPayment.create([{
+      vendorId: input.vendorId, date: input.date.trim(), amount: rawPaid,
+      paymentMethod: input.paymentMethod, source: "external", advancePortion: 0,
+      targetEntryId: entry._id, referenceId: input.referenceId?.trim() || undefined,
+      remarks: input.remarks?.trim() || `Payment for ${item.name}`,
+    }], { session });
+  }
+  await ConsumableItem.findByIdAndUpdate(item._id, { $inc: {
+    currentStock: quantity, totalPurchased: quantity, totalAmount: totalPrice,
+    totalPaid: rawPaid, totalPending: Math.max(0, totalPrice - rawPaid),
+  } }, { session });
+  await Vendor.findByIdAndUpdate(input.vendorId, { $inc: {
+    totalBilled: totalPrice, totalPaid: rawPaid, remaining: totalPrice - rawPaid,
+    advanceBalance: Math.max(0, rawPaid - totalPrice),
+  } }, { session });
+  return entry;
+}
+
 /** Add item ledger entry: creates entry, updates item totals and vendor denormalized totals in a transaction. */
 export async function createItemLedgerEntry(
   actor: { userId: string; email: string; role: string },
   input: CreateItemLedgerInput
 ): Promise<ItemLedgerPayload> {
-  if (!input.date) throw new Error("Date is required");
-  if (!input.quantity || input.quantity <= 0) throw new Error("Quantity must be greater than 0");
-  input.quantity = normalizeQuantity(input.quantity);
-  if (!input.unit?.trim()) throw new Error("Unit is required");
-  if (input.unitPrice == null || input.unitPrice < 0) throw new Error("Unit price must be >= 0");
-  if (!input.vendorId) throw new Error("Vendor is required");
-  if (!["Cash", "Bank", "Online"].includes(input.paymentMethod)) throw new Error("Invalid payment method");
-
-  const totalPrice = input.quantity * input.unitPrice;
+  validateItemLedgerInput(input);
+  input.quantity = normalizeQuantity(Number(input.quantity));
+  const totalPrice = input.quantity * Number(input.unitPrice);
   const rawPaid = input.paidAmount ?? 0;
   // An invoice is always its own bill row. When money is entered alongside it, create a
   // separate VendorPayment row below it rather than embedding payment/advance into the bill.
-  const paidAmount = 0;
-  const remaining = totalPrice;
-  const advanceGenerated = 0;
-
   const item = await ConsumableItem.findById(input.itemId).lean();
   if (!item) throw new Error("Item not found");
 
@@ -220,74 +316,7 @@ export async function createItemLedgerEntry(
   let result: ItemLedgerPayload;
   try {
     await session.withTransaction(async () => {
-      const [entry] = await ItemLedgerEntry.create(
-        [
-          {
-            projectId: item.projectId,
-            itemId: input.itemId,
-            vendorId: input.vendorId,
-            date: input.date,
-            quantity: input.quantity,
-            unit: input.unit?.trim() || undefined,
-            unitPrice: input.unitPrice,
-            totalPrice,
-            paidAmount,
-            remaining,
-            advanceGenerated,
-            biltyNumber: input.biltyNumber?.trim() || undefined,
-            vehicleNumber: input.vehicleNumber?.trim() || undefined,
-            paymentMethod: input.paymentMethod,
-            referenceId: input.referenceId?.trim() || undefined,
-            remarks: input.remarks?.trim() || undefined,
-          },
-        ],
-        { session }
-      );
-
-      if (rawPaid > 0) {
-        await VendorPayment.create(
-          [{
-            vendorId: input.vendorId,
-            date: input.date,
-            amount: rawPaid,
-            paymentMethod: input.paymentMethod,
-            source: "external",
-            advancePortion: 0,
-            targetEntryId: entry._id,
-            referenceId: input.referenceId?.trim() || undefined,
-            remarks: input.remarks?.trim() || `Payment for ${item.name}`,
-          }],
-          { session }
-        );
-      }
-
-      await ConsumableItem.findByIdAndUpdate(
-        input.itemId,
-        {
-          $inc: {
-            currentStock: input.quantity,
-            totalPurchased: input.quantity,
-            totalAmount: totalPrice,
-            totalPaid: rawPaid,
-            totalPending: Math.max(0, totalPrice - rawPaid),
-          },
-        },
-        { session }
-      );
-
-      await Vendor.findByIdAndUpdate(
-        input.vendorId,
-        {
-          $inc: {
-            totalBilled: totalPrice,
-            totalPaid: rawPaid,
-            remaining: totalPrice - rawPaid,
-            advanceBalance: Math.max(0, rawPaid - totalPrice),
-          },
-        },
-        { session }
-      );
-
+      const entry = await applyItemLedgerEntry(session, input, item, vendor);
       result = await buildPayload(entry);
     });
   } finally {
@@ -311,6 +340,46 @@ export async function createItemLedgerEntry(
   });
 
   return result!;
+}
+
+export async function createItemLedgerEntriesBulk(
+  actor: { userId: string; email: string; role: string }, input: BulkItemLedgerInput
+): Promise<{ created: number }> {
+  let projectId = input.projectId;
+  if (actor.role === "site_manager") projectId = (await resolveSiteManagerProjectId(actor.userId, projectId)) ?? "";
+  if (!projectId || !mongoose.Types.ObjectId.isValid(projectId)) throw new Error("Project is required");
+  const entries = input.entries ?? [];
+  const itemIds = [...new Set(entries.map((e) => e.itemId))].filter((id) => mongoose.Types.ObjectId.isValid(id));
+  const vendorIds = [...new Set(entries.map((e) => e.vendorId))].filter((id) => mongoose.Types.ObjectId.isValid(id));
+  const [items, vendors] = await Promise.all([
+    ConsumableItem.find({ _id: { $in: itemIds }, projectId }).lean(),
+    Vendor.find({ _id: { $in: vendorIds }, projectId }).lean(),
+  ]);
+  const itemMap = new Map(items.map((item) => [item._id.toString(), item]));
+  const vendorMap = new Map(vendors.map((vendor) => [vendor._id.toString(), vendor]));
+  const rows: { rowIndex: number; message: string }[] = [];
+  entries.forEach((entry, rowIndex) => {
+    try {
+      validateItemLedgerInput(entry);
+      if (!itemMap.has(entry.itemId)) throw new Error("Item not found or does not belong to this project");
+      if (!vendorMap.has(entry.vendorId)) throw new Error("Vendor not found or does not belong to this project");
+    } catch (error) { rows.push({ rowIndex, message: error instanceof Error ? error.message : "Invalid row" }); }
+  });
+  if (rows.length) throw new BulkItemValidationError(rows);
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      for (const entry of entries) await applyItemLedgerEntry(session, entry, itemMap.get(entry.itemId)!, vendorMap.get(entry.vendorId)!);
+    });
+  } finally { await session.endSession(); }
+  const actorUser = await User.findById(actor.userId).lean();
+  await logAudit({
+    userId: actor.userId, userName: actorUser?.name ?? "Unknown", userEmail: actor.email,
+    role: roleDisplay[actor.role as keyof typeof roleDisplay] ?? actor.role, action: "create",
+    module: "item_ledger", projectId, projectName: await getProjectName(projectId),
+    description: `Bulk purchase: ${entries.length} entries`, newValue: { count: entries.length },
+  });
+  return { created: entries.length };
 }
 
 /** Edit ledger entry: reverse old deltas, apply new deltas — transactional. */

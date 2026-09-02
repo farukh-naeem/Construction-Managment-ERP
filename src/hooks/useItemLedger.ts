@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { listItemLedger, type ApiItemLedgerEntry } from "@/services/itemLedgerService";
+import { listItemLedger, type ApiItemLedgerRow } from "@/services/itemLedgerService";
 
 const DEFAULT_PAGE_SIZE = 12;
 
@@ -8,7 +8,7 @@ export function useItemLedger(
   page: number = 1,
   pageSize: number = DEFAULT_PAGE_SIZE
 ) {
-  const [entries, setEntries] = useState<ApiItemLedgerEntry[]>([]);
+  const [entries, setEntries] = useState<ApiItemLedgerRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

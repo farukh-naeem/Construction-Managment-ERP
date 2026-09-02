@@ -128,3 +128,13 @@ export function requireBankAccountManageAccess(req: AuthRequest, res: Response, 
   }
   next();
 }
+
+/** Require actor to be Admin or Super Admin (for customer / sale / payment edit/delete) */
+export function requireCustomerManageAccess(req: AuthRequest, res: Response, next: NextFunction) {
+  const role = req.user?.role;
+  if (role !== "super_admin" && role !== "admin") {
+    res.status(403).json({ error: "Forbidden: customer edit/delete requires Admin or Super Admin" });
+    return;
+  }
+  next();
+}

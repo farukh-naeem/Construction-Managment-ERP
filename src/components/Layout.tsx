@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, FolderKanban, Package, Wrench, Users, Building2,
-  Receipt, Truck, HardHat, ClipboardList, BarChart3, Menu, X, ChevronDown, ChevronRight, UserCog, LogOut, Zap, Banknote, ContactRound
+  Receipt, Truck, HardHat, ClipboardList, BarChart3, Menu, X, ChevronDown, ChevronRight, UserCog, LogOut, Zap, Banknote, ContactRound, UserRound, HandCoins, FileBarChart
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ const projectNavItems: NavItem[] = [
   { label: "Projects", path: "/projects", icon: <FolderKanban className="h-4 w-4" /> },
   { label: "Cash & Expenses", path: "/cash-expenses", icon: <Banknote className="h-4 w-4" /> },
   { label: "Liabilities", path: "/liabilities", icon: <BarChart3 className="h-4 w-4" /> },
+  { label: "Receivables", path: "/receivables", icon: <HandCoins className="h-4 w-4" /> },
   {
     label: "Inventory", path: "/inventory", icon: <Package className="h-4 w-4" />,
     children: [
@@ -38,11 +39,13 @@ const projectNavItems: NavItem[] = [
     ],
   },
   { label: "Vendors", path: "/vendors", icon: <Truck className="h-4 w-4" /> },
+  { label: "Customers", path: "/customers", icon: <UserRound className="h-4 w-4" /> },
   { label: "Contractors", path: "/contractors", icon: <HardHat className="h-4 w-4" /> },
   { label: "Employees", path: "/employees", icon: <Users className="h-4 w-4" /> },
   { label: "Machinery Employees", path: "/machinery-employees", icon: <Users className="h-4 w-4" /> },
   { label: "Expenses", path: "/expenses", icon: <Receipt className="h-4 w-4" /> },
   { label: "Machinery", path: "/machinery", icon: <Wrench className="h-4 w-4" /> },
+  { label: "Reports", path: "/reports", icon: <FileBarChart className="h-4 w-4" /> },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {

@@ -12,6 +12,10 @@ import { consumableUnitRoutes } from "./routes/consumableUnits.js";
 import { itemLedgerRoutes } from "./routes/itemLedger.js";
 import { stockConsumptionRoutes } from "./routes/stockConsumption.js";
 import { vendorPaymentRoutes } from "./routes/vendorPayments.js";
+import { customerRoutes } from "./routes/customers.js";
+import { customerPaymentRoutes } from "./routes/customerPayments.js";
+import { customerSaleRoutes } from "./routes/customerSales.js";
+import { salesReportRoutes } from "./routes/salesReport.js";
 import { contractorRoutes } from "./routes/contractors.js";
 import { contractorPaymentRoutes } from "./routes/contractorPayments.js";
 import { employeeRoutes } from "./routes/employees.js";
@@ -25,6 +29,7 @@ import { bankTransactionRoutes } from "./routes/bankTransactions.js";
 import { projectLedgerRoutes } from "./routes/projectLedger.js";
 import { clientRoutes } from "./routes/clients.js";
 import { customHeadRoutes } from "./routes/customHeads.js";
+import { reportsRoutes } from "./routes/reports.js";
 
 const PORT = process.env.PORT ?? 3001;
 const MONGODB_URI = process.env.MONGODB_URI ?? "mongodb://localhost:27017/builderp";
@@ -73,6 +78,10 @@ app.use("/api/consumable-units", consumableUnitRoutes);
 app.use("/api/consumable-items/:itemId/ledger", itemLedgerRoutes);
 app.use("/api/stock-consumption", stockConsumptionRoutes);
 app.use("/api/vendors/:vendorId", vendorPaymentRoutes);
+app.use("/api/customers", customerRoutes);
+app.use("/api/customers/:customerId", customerPaymentRoutes);
+app.use("/api/customer-sales", customerSaleRoutes);
+app.use("/api/sales-report", salesReportRoutes);
 app.use("/api/contractors", contractorRoutes);
 app.use("/api/contractors/:contractorId", contractorPaymentRoutes);
 app.use("/api/employees", employeeRoutes);
@@ -85,6 +94,7 @@ app.use("/api/bank-accounts", bankAccountRoutes);
 app.use("/api/bank-transactions", bankTransactionRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/custom-heads", customHeadRoutes);
+app.use("/api/reports", reportsRoutes);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });

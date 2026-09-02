@@ -4,6 +4,7 @@ import Layout from "@/components/Layout";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
 import { formatCurrency, formatQuantity } from "@/lib/mock-data";
+import { formatDisplayDate } from "@/lib/pktDate";
 import { useItemLedger } from "@/hooks/useItemLedger";
 import { getConsumableItem } from "@/services/consumableItemsService";
 import { deleteItemLedgerEntry, type ApiItemLedgerEntry } from "@/services/itemLedgerService";
@@ -179,14 +180,26 @@ export default function ItemLedger() {
               ) : (
                 entries.map((entry) => (
                   <tr key={`${entry.type}-${entry.id}`} className="border-b border-border hover:bg-accent/50 transition-colors">
-                    <td className="px-3 py-3 text-sm">{entry.date}</td>
-                    <td className="px-3 py-3 text-sm text-muted-foreground">{entry.type === "purchase" ? entry.remarks || "—" : entry.remarks || "Consumption"}</td>
-                    <td className="px-3 py-3 text-right font-mono text-sm">{entry.type === "purchase" ? formatCurrency(entry.unitPrice) : "—"}</td>
+                    <td className="px-3 py-3 text-sm">{formatDisplayDate(entry.date)}</td>
+                    <td className="px-3 py-3 text-sm text-muted-foreground">
+                      {entry.type === "purchase"
+                        ? entry.remarks || "—"
+                        : entry.type === "sale"
+                          ? `Sold to ${entry.customerName}${entry.remarks ? ` — ${entry.remarks}` : ""}`
+                          : entry.remarks || "Consumption"}
+                    </td>
+                    <td className="px-3 py-3 text-right font-mono text-sm">{entry.type === "consumption" ? "—" : formatCurrency(entry.unitPrice)}</td>
                     <td className="px-3 py-3 text-sm">{entry.type === "purchase" ? entry.vehicleNumber || "—" : "—"}</td>
                     <td className="px-3 py-3 text-sm">{entry.type === "purchase" ? entry.biltyNumber || "—" : "—"}</td>
                     <td className="px-3 py-3 text-sm">{entry.unit || "—"}</td>
                     <td className="px-3 py-3 text-right font-mono text-sm text-success">{entry.type === "purchase" ? formatQuantity(entry.quantity) : "—"}</td>
-                    <td className="px-3 py-3 text-right font-mono text-sm text-destructive">{entry.type === "consumption" ? formatQuantity(entry.quantityUsed) : "—"}</td>
+                    <td className="px-3 py-3 text-right font-mono text-sm text-destructive">
+                      {entry.type === "consumption"
+                        ? formatQuantity(entry.quantityUsed)
+                        : entry.type === "sale"
+                          ? formatQuantity(entry.quantitySold)
+                          : "—"}
+                    </td>
                     <td className="px-3 py-3 text-right font-mono text-sm font-bold">{entry.runningBalance != null ? formatQuantity(entry.runningBalance) : "—"}</td>
                     {canEditDelete && (
                     <td className="px-3 py-3 text-right print-hidden">
@@ -212,7 +225,18 @@ export default function ItemLedger() {
                     {formatQuantity(entries.reduce((sum, entry) => sum + (entry.type === "purchase" ? entry.quantity : 0), 0))}
                   </td>
                   <td className="px-3 py-3 text-right font-mono text-sm text-destructive">
-                    {formatQuantity(entries.reduce((sum, entry) => sum + (entry.type === "consumption" ? entry.quantityUsed : 0), 0))}
+                    {formatQuantity(
+                      entries.reduce(
+                        (sum, entry) =>
+                          sum +
+                          (entry.type === "consumption"
+                            ? entry.quantityUsed
+                            : entry.type === "sale"
+                              ? entry.quantitySold
+                              : 0),
+                        0
+                      )
+                    )}
                   </td>
                   <td className="px-3 py-3"></td>
                   {canEditDelete && <td className="px-3 py-3 print-hidden"></td>}

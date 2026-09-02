@@ -13,10 +13,13 @@ export interface ApiMachine {
 }
 
 export interface ApiMachineWithTotals extends ApiMachine {
+  totalDiesel: number;
   totalHours: number;
   totalCost: number;
   totalPaid: number;
   totalPending: number;
+  /** Unconsumed advance sitting with the owner — max(0, totalPaid - totalCost). Receivable side. */
+  totalAdvance: number;
 }
 
 export interface ListMachinesParams {
@@ -180,8 +183,23 @@ export type ApiMachineLedgerEntry = ApiMachineLedgerEntryRow;
 export interface CreateMachineEntryInput {
   date: string;
   hoursWorked: number;
+  dieselLitres?: number;
   usedBy?: string;
   remarks?: string;
+}
+
+export interface BulkMachineEntry {
+  machineId: string;
+  hoursWorked: number;
+  dieselLitres?: number;
+  usedBy?: string;
+  remarks?: string;
+}
+
+export async function createMachineEntriesBulk(input: {
+  projectId: string; date: string; entries: BulkMachineEntry[];
+}): Promise<{ created: number }> {
+  return api("/api/machines/bulk-ledger", { method: "POST", body: JSON.stringify(input) });
 }
 
 export interface CreateMachinePaymentInput {

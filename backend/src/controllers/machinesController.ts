@@ -10,6 +10,7 @@ import {
   type UpdateMachineInput,
 } from "../services/machineService.js";
 import type { AuthRequest } from "../middleware/auth.js";
+import { createMachineEntriesBulk, BulkMachineValidationError, type BulkMachineEntryInput } from "../services/machineLedgerService.js";
 
 export async function list(req: AuthRequest, res: Response) {
   try {
@@ -50,6 +51,21 @@ export async function runningBillList(req: AuthRequest, res: Response) {
         ? 400
         : 500;
     res.status(status).json({ error: message });
+  }
+}
+
+export async function bulkCreateLedger(req: AuthRequest, res: Response) {
+  try {
+    const actor = req.user!;
+    res.status(201).json(await createMachineEntriesBulk(
+      { userId: actor.userId, email: actor.email, role: actor.role }, req.body as BulkMachineEntryInput
+    ));
+  } catch (err) {
+    if (err instanceof BulkMachineValidationError) {
+      res.status(400).json({ error: err.message, rows: err.rows }); return;
+    }
+    const message = err instanceof Error ? err.message : "Failed to create bulk machine entries";
+    res.status(400).json({ error: message });
   }
 }
 

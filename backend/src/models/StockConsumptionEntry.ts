@@ -9,6 +9,8 @@ export interface IConsumptionItem {
 export interface IStockConsumptionEntry {
   _id: mongoose.Types.ObjectId;
   projectId: mongoose.Types.ObjectId;
+  machineId?: mongoose.Types.ObjectId;
+  machineLedgerEntryId?: mongoose.Types.ObjectId;
   date: string;
   remarks?: string;
   items: IConsumptionItem[];
@@ -28,6 +30,8 @@ const consumptionItemSchema = new mongoose.Schema<IConsumptionItem>(
 const stockConsumptionEntrySchema = new mongoose.Schema<IStockConsumptionEntry>(
   {
     projectId: { type: mongoose.Schema.Types.ObjectId, ref: "Project", required: true },
+    machineId: { type: mongoose.Schema.Types.ObjectId, ref: "Machine", index: true },
+    machineLedgerEntryId: { type: mongoose.Schema.Types.ObjectId, ref: "MachineLedgerEntry" },
     date: { type: String, required: true },
     remarks: { type: String, trim: true },
     items: { type: [consumptionItemSchema], required: true },
@@ -36,6 +40,7 @@ const stockConsumptionEntrySchema = new mongoose.Schema<IStockConsumptionEntry>(
 );
 
 stockConsumptionEntrySchema.index({ projectId: 1, date: -1 });
+stockConsumptionEntrySchema.index({ machineLedgerEntryId: 1 }, { sparse: true });
 
 export const StockConsumptionEntry = mongoose.model<IStockConsumptionEntry>(
   "StockConsumptionEntry",

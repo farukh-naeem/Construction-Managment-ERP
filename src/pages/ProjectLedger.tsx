@@ -4,6 +4,7 @@ import Layout from "@/components/Layout";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
 import { formatCurrency } from "@/lib/mock-data";
+import { formatDisplayDate } from "@/lib/pktDate";
 import { useProjectLedger } from "@/hooks/useProjectLedger";
 import { ManualBalanceAdjustmentDialog } from "@/components/dialogs/ManualBalanceAdjustmentDialog";
 import { TablePagination } from "@/components/TablePagination";
@@ -144,7 +145,7 @@ export default function ProjectLedger() {
                   ) : (
                     ledger.rows.map((row) => (
                       <tr key={row.id} className="border-b border-border/40 hover:bg-muted/30 transition-colors">
-                        <td className="px-5 py-3.5 text-sm text-muted-foreground">{row.date}</td>
+                        <td className="px-5 py-3.5 text-sm text-muted-foreground">{formatDisplayDate(row.date)}</td>
                         <td className="px-5 py-3.5 text-sm text-muted-foreground">{row.type === "bank_outflow" ? ([row.referenceId, row.remarks].filter(Boolean).join(" — ") || "—") : (row.remarks ?? "—")}</td>
                         <td className="px-5 py-3.5 text-sm text-muted-foreground">{row.source ?? "—"}</td>
                         <td className="px-5 py-3.5 text-right font-mono text-sm font-medium">

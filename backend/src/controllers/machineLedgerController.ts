@@ -39,6 +39,7 @@ export async function createEntry(req: AuthRequest, res: Response) {
     const msg = err instanceof Error ? err.message : "Failed to add machine ledger entry";
     const status =
       msg.includes("required") || msg.includes("positive") || msg.includes("Invalid") ? 400
+        : msg.includes("Insufficient stock") || msg.includes("Diesel") ? 400
         : msg.includes("not found") ? 404
         : 500;
     res.status(status).json({ error: msg });

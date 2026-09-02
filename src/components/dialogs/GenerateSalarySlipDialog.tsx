@@ -21,7 +21,7 @@ import {
 import { Printer, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { COMPANY_LOGO_URL } from "@/lib/company";
-import { todayPKT } from "@/lib/pktDate";
+import { formatDisplayDate, todayPKT } from "@/lib/pktDate";
 
 /** Fixed line-item labels — order and wording match the company's paper salary slip exactly. */
 const EARNINGS_ITEMS = [
@@ -253,7 +253,7 @@ export function GenerateSalarySlipDialog({ open, onOpenChange }: GenerateSalaryS
           <div class="kv"><span class="k">Days:</span><span><b>${escapeHtml(days || "-")}</b></span></div>
         </td>
         <td class="info-right">
-          <div class="kv"><span class="k">Date of Issue</span><span>${escapeHtml(dateOfIssue)}</span></div>
+          <div class="kv"><span class="k">Date of Issue</span><span>${escapeHtml(formatDisplayDate(dateOfIssue))}</span></div>
           <div class="kv"><span class="k">Designation:</span><span><b>${escapeHtml(designation || "-")}</b></span></div>
         </td>
       </tr>
@@ -281,7 +281,7 @@ export function GenerateSalarySlipDialog({ open, onOpenChange }: GenerateSalaryS
 
     <div class="meta">
       <div class="meta-row"><span class="k">Status:</span><span>${escapeHtml(status || "-")}</span></div>
-      <div class="meta-row"><span class="k">Date of Joining:</span><span>${escapeHtml(dateOfJoining || "-")}</span></div>
+      <div class="meta-row"><span class="k">Date of Joining:</span><span>${escapeHtml(formatDisplayDate(dateOfJoining, "-"))}</span></div>
       <div class="meta-row"><span class="k">Cheque No:</span><span>${escapeHtml(chequeNo || "-")}</span></div>
     </div>
 

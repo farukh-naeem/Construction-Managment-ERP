@@ -3,6 +3,7 @@ import Layout from "@/components/Layout";
 import PageHeader from "@/components/PageHeader";
 import StatCard from "@/components/StatCard";
 import { formatCurrency } from "@/lib/mock-data";
+import { formatDisplayDate } from "@/lib/pktDate";
 import { useAuth } from "@/context/AuthContext";
 import { useSelectedProject } from "@/context/SelectedProjectContext";
 import { useProjects } from "@/hooks/useProjects";
@@ -288,7 +289,7 @@ export default function Expenses() {
         <div id="expenses-table" className="border-2 border-border">
           {showPrevCard && (
             <div className="expenses-prev-header hidden">
-              Previous (before {startDate}){categoryFilter !== "all" ? ` — ${categoryFilter}` : ""}: {formatCurrency(previousTotal)}
+              Previous (before {formatDisplayDate(startDate)}){categoryFilter !== "all" ? ` — ${categoryFilter}` : ""}: {formatCurrency(previousTotal)}
             </div>
           )}
           <div className="overflow-x-auto">
@@ -320,7 +321,7 @@ export default function Expenses() {
                 ) : (
                   expenses.map((exp, i) => (
                     <tr key={exp.id} className="border-b border-border hover:bg-accent/50 transition-colors">
-                      <td className="px-4 py-3 text-sm">{exp.date}</td>
+                      <td className="px-4 py-3 text-sm">{formatDisplayDate(exp.date)}</td>
                       <td className="px-4 py-3 font-bold text-sm">{exp.description}</td>
                       <td className="px-4 py-3 text-sm uppercase text-muted-foreground">{exp.category}</td>
                       <td className="px-4 py-3 text-sm">{exp.paymentMode}</td>

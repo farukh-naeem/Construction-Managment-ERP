@@ -5,6 +5,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatCurrency } from "@/lib/mock-data";
+import { formatDisplayDate } from "@/lib/pktDate";
 import type { Employee } from "@/lib/mock-data";
 
 interface SalaryLedgerDialogProps {
@@ -63,7 +64,7 @@ export function SalaryLedgerDialog({ open, onOpenChange, employee }: SalaryLedge
                   <td className="px-4 py-2 text-right font-mono">{formatCurrency(row.payable)}</td>
                   <td className="px-4 py-2 text-right font-mono text-success">{formatCurrency(row.paid)}</td>
                   <td className="px-4 py-2 text-right font-mono text-destructive">{row.due > 0 ? formatCurrency(row.due) : "—"}</td>
-                  <td className="px-4 py-2">{row.paymentDate}</td>
+                  <td className="px-4 py-2">{formatDisplayDate(row.paymentDate)}</td>
                   <td className="px-4 py-2">{row.method}</td>
                 </tr>
               ))}

@@ -394,9 +394,9 @@ export interface EmployeeTotalsOptions {
 export async function getEmployeeTotals(
   employeeId: string,
   options?: EmployeeTotalsOptions
-): Promise<{ totalPaid: number; totalDue: number }> {
+): Promise<{ totalPaid: number; totalDue: number; totalAdvance: number }> {
   if (!mongoose.Types.ObjectId.isValid(employeeId)) {
-    return { totalPaid: 0, totalDue: 0 };
+    return { totalPaid: 0, totalDue: 0, totalAdvance: 0 };
   }
   const oid = new mongoose.Types.ObjectId(employeeId);
   const startDate = options?.startDate?.trim() || undefined;
@@ -420,12 +420,17 @@ export async function getEmployeeTotals(
       (m) => m >= firstMonth && m <= cappedCurrentMonth
     );
     let totalDue = 0;
+    let totalPayable = 0;
     for (const month of months) {
       const payable = await computePayableForMonth(employeeId, month);
       const paid = await getMonthPaid(employeeId, month);
       totalDue += Math.max(0, payable - paid);
+      totalPayable += payable;
     }
-    return { totalPaid, totalDue };
+    // Advance = money handed over beyond everything earned so far. Daily-wage advances are paid
+    // ahead of marked attendance, so they show up here until the work catches up with them.
+    const totalAdvance = Math.max(0, roundAmount(totalPaid - totalPayable));
+    return { totalPaid, totalDue, totalAdvance };
   }
 
   // Date-ranged: payable is summed over the months overlapping the range (see semantics note
@@ -452,6 +457,7 @@ export async function getEmployeeTotals(
   const totalPaid = paidAgg[0]?.total ?? 0;
 
   let totalDue = 0;
+  let totalPayable = 0;
   for (const month of months) {
     const payable = await computePayableForMonth(employeeId, month);
     // Payments toward that month's due, restricted to the date range.
@@ -460,8 +466,10 @@ export async function getEmployeeTotals(
       { $group: { _id: null, total: { $sum: "$amount" } } },
     ]).then((r) => r[0]?.total ?? 0);
     totalDue += Math.max(0, payable - monthPaid);
+    totalPayable += payable;
   }
-  return { totalPaid, totalDue };
+  const totalAdvance = Math.max(0, roundAmount(totalPaid - totalPayable));
+  return { totalPaid, totalDue, totalAdvance };
 }
 
 /** Sum of all payment amounts for this employee and month. */

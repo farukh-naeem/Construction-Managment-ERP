@@ -69,7 +69,7 @@ import {
 import { deleteEmployee, type ApiEmployee } from "@/services/employeesService";
 import { EditEmployeeDialog } from "@/components/dialogs/EditEmployeeDialog";
 import { TablePagination } from "@/components/TablePagination";
-import { todayPKT } from "@/lib/pktDate";
+import { formatDisplayDate, todayPKT } from "@/lib/pktDate";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const PAYMENT_PAGE_SIZE_OPTIONS = [12, 24, 50, 100];
@@ -418,9 +418,9 @@ export default function EmployeeLedger() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user: currentUser } = useAuth();
 
-  const fromLiabilities = searchParams.get("returnTo") === "liabilities";
-  const backPath = fromLiabilities ? "/liabilities" : "/employees";
-  const backLabel = fromLiabilities ? "Back to Liabilities" : "Back to Employees";
+  const returnTo = searchParams.get("returnTo");
+  const backPath = returnTo === "liabilities" ? "/liabilities" : returnTo === "receivables" ? "/receivables" : "/employees";
+  const backLabel = returnTo === "liabilities" ? "Back to Liabilities" : returnTo === "receivables" ? "Back to Receivables" : "Back to Employees";
 
   const currentMonth = getLocalMonthKey();
   const urlMonth = searchParams.get("month") ?? currentMonth;
@@ -1086,7 +1086,7 @@ export default function EmployeeLedger() {
               ) : (
                 paginatedPayments.map((payment) => (
                   <tr key={payment.id} className="border-t border-border">
-                    <td className="px-3 py-2">{payment.date || "—"}</td>
+                    <td className="px-3 py-2">{formatDisplayDate(payment.date)}</td>
                     <td className="px-3 py-2">{payment.month ? monthLabel(payment.month) : "—"}</td>
                     <td className="px-3 py-2">{payment.remarks ?? "—"}{payment.paymentMethod ? ` · ${payment.paymentMethod}` : ""}</td>
                     <td className="px-3 py-2 text-right font-mono">{payment.type === "payable" ? formatCurrency(payment.amount) : "—"}</td>

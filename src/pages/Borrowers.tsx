@@ -41,18 +41,18 @@ export default function Borrowers() {
     finally { setSaving(false); }
   };
   return <Layout>
-    <PageHeader title="Borrowers" subtitle="Loans given, repayments, and outstanding amounts across all banks" />
+    <PageHeader title="Borrowers" subtitle="Payments given and received, with the current balance across all banks" />
     <div className="flex flex-wrap items-center gap-3 mb-6">
       {!archived && <form onSubmit={create} className="flex gap-2 max-w-md"><Input aria-label="Borrower name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Borrower name" required /><Button variant="warning" disabled={saving}>{saving ? "Saving…" : "Add Borrower"}</Button></form>}
       <Button variant="outline" onClick={() => setArchived(!archived)}>{archived ? "Show active borrowers" : "Show archived borrowers"}</Button>
     </div>
     {error ? <p className="text-destructive">{error}</p> : loading ? <p className="text-muted-foreground">Loading borrowers…</p> : <div className="rounded-xl border bg-card overflow-x-auto">
-      <table className="w-full text-sm"><thead><tr className="border-b bg-muted/10"><th className="p-3 text-left">Name</th><th className="p-3 text-right">Total Loaned</th><th className="p-3 text-right">Total Repaid</th><th className="p-3 text-right">Outstanding</th><th className="p-3 text-right">Actions</th></tr></thead>
+      <table className="w-full text-sm"><thead><tr className="border-b bg-muted/10"><th className="p-3 text-left">Name</th><th className="p-3 text-right">Payments Given</th><th className="p-3 text-right">Payments Received</th><th className="p-3 text-right">Current Balance</th><th className="p-3 text-right">Actions</th></tr></thead>
         <tbody>{borrowers.length ? borrowers.map((b) => <tr key={b.id} className="border-b hover:bg-muted/30">
           <td className="p-3"><Link to={`/borrowers/${b.id}/ledger`} className="font-medium text-primary hover:underline">{b.name}</Link></td>
           <td className="p-3 text-right font-mono">{formatCurrency(b.totalLoaned)}</td><td className="p-3 text-right font-mono">{formatCurrency(b.totalRepaid)}</td><td className="p-3 text-right font-mono">{formatCurrency(b.outstanding)}</td>
           <td className="p-3"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label={`Edit ${b.name}`} onClick={() => { setEditing(b); setEditName(b.name); }}><Pencil className="h-4 w-4" /></Button>
-            {!archived && user?.role === "Super Admin" && <Button variant="ghost" size="icon" className="text-destructive" aria-label={`Delete ${b.name}`} disabled={b.outstanding !== 0} title={b.outstanding !== 0 ? "Payment is still owed" : "Delete borrower"} onClick={() => setDeleting(b)}><Trash2 className="h-4 w-4" /></Button>}
+            {!archived && user?.role === "Super Admin" && <Button variant="ghost" size="icon" className="text-destructive" aria-label={`Delete ${b.name}`} disabled={b.outstanding !== 0} title={b.outstanding !== 0 ? "Account balance is not settled" : "Delete borrower"} onClick={() => setDeleting(b)}><Trash2 className="h-4 w-4" /></Button>}
             <Link to={`/borrowers/${b.id}/ledger`} className="self-center text-primary hover:underline">View ledger</Link></div></td>
         </tr>) : <tr><td colSpan={5} className="p-6 text-center text-muted-foreground">No {archived ? "archived " : ""}borrowers yet</td></tr>}</tbody>
       </table>
@@ -60,6 +60,6 @@ export default function Borrowers() {
     <Dialog open={!!editing} onOpenChange={(open) => !open && !saving && setEditing(undefined)}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>Edit Borrower</DialogTitle></DialogHeader>
       <form onSubmit={edit} className="space-y-4"><Input aria-label="Borrower name" value={editName} onChange={(e) => setEditName(e.target.value)} required /><DialogFooter><Button type="button" variant="outline" disabled={saving} onClick={() => setEditing(undefined)}>Cancel</Button><Button variant="warning" disabled={saving}>Save changes</Button></DialogFooter></form>
     </DialogContent></Dialog>
-    <AlertDialog open={!!deleting} onOpenChange={(open) => !open && !saving && setDeleting(undefined)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete borrower?</AlertDialogTitle><AlertDialogDescription>{deleting?.name} can only be removed when nothing is owed. Borrowers with payment history will be archived, preserving all financial entries.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel><AlertDialogAction disabled={saving} onClick={(e) => { e.preventDefault(); void remove(); }}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <AlertDialog open={!!deleting} onOpenChange={(open) => !open && !saving && setDeleting(undefined)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete borrower?</AlertDialogTitle><AlertDialogDescription>{deleting?.name} can only be removed when the current balance is zero. Borrowers with payment history will be archived, preserving all financial entries.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel><AlertDialogAction disabled={saving} onClick={(e) => { e.preventDefault(); void remove(); }}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
   </Layout>;
 }

@@ -33,14 +33,13 @@ function safeAdd(a: number, b: number) {
   return result;
 }
 export interface LoanRow { type: "inflow" | "outflow"; amount: number }
-export function borrowerTotals(rows: LoanRow[], validate = false) {
+export function borrowerTotals(rows: LoanRow[]) {
   let loaned = 0; let repaid = 0; let balance = 0;
   const balances = rows.map((row) => {
     const amount = minorUnits(row.amount);
     if (row.type === "outflow") loaned = safeAdd(loaned, amount);
     else repaid = safeAdd(repaid, amount);
     balance = safeAdd(balance, row.type === "outflow" ? amount : -amount);
-    if (validate && balance < 0) throw new BorrowerError("Cannot apply transaction: repayment exceeds the loan owed on its ledger date");
     return balance / 100;
   });
   return { totalLoaned: loaned / 100, totalRepaid: repaid / 100, outstanding: balance / 100, balances };
@@ -121,7 +120,7 @@ export async function deleteBorrower(actor: BorrowerActor, id: string) {
     const borrower = await Borrower.findOneAndUpdate({ _id: objectId }, { $inc: { revision: 1 } }, { session, new: true });
     if (!borrower) throw new BorrowerError("Borrower not found", 404);
     const rows = await loanHistory(objectId, session);
-    if (borrowerTotals(rows, true).outstanding !== 0) throw new BorrowerError("Cannot delete borrower: payment is still owed");
+    if (borrowerTotals(rows).outstanding !== 0) throw new BorrowerError("Cannot delete borrower: account balance is not settled");
     if (rows.length) await Borrower.updateOne({ _id: objectId }, { $set: { archived: true } }, { session });
     else await Borrower.deleteOne({ _id: objectId }, { session });
     await borrowerAudit(actor, session, { action: "delete", module: "borrowers", entityId: id, description: `${rows.length ? "Archived" : "Deleted"} borrower: ${borrower.name}`, oldValue: { name: borrower.name }, newValue: { archived: rows.length > 0 } });

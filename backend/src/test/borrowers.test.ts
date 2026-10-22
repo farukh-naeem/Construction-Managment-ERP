@@ -65,7 +65,7 @@ test("multiple banks share canonical loans, repayments and filtered running bala
   const bankLedger = await getBankAccountLedger(String(a._id));
   assert.equal(bankLedger.columns.at(-1)?.key, "borrower");
   assert.equal(bankLedger.rows[0].id, loan.id); assert.equal(bankLedger.rows[0].outflows.borrower, 100);
-  assert.match(bankLedger.rows[0].particulars, /Ali/); assert.match(bankLedger.rows[1].particulars, /Loan payment/);
+  assert.match(bankLedger.rows[0].particulars, /Ali/); assert.match(bankLedger.rows[1].particulars, /Payment received/);
   assert.equal(bankLedger.rows[1].received, 80);
   const accounts = await BankAccount.find().sort({ name: 1 }).lean();
   assert.deepEqual(accounts.map((r) => [r.currentBalance, r.totalInflow, r.totalOutflow]), [[980, 80, 100], [1020, 70, 50]]);
@@ -77,7 +77,7 @@ test("invalid amounts, dates, attribution and limits roll back ledger, bank, rev
   const b = await createBorrower(actor, "Ali"); const a = await bank(100);
   await transaction(b.id, String(a._id), "outflow", 40);
   const revision = (await Borrower.findById(b.id))!.revision;
-  for (const [type, amount] of [["inflow", 40.01], ["outflow", 60.01], ["inflow", 0], ["outflow", -1], ["outflow", NaN], ["outflow", Infinity], ["outflow", 0.001], ["outflow", 0.0100000001], ["outflow", Number.MAX_SAFE_INTEGER]] as const) {
+  for (const [type, amount] of [["outflow", 60.01], ["inflow", 0], ["outflow", -1], ["outflow", NaN], ["outflow", Infinity], ["outflow", 0.001], ["outflow", 0.0100000001], ["outflow", Number.MAX_SAFE_INTEGER]] as const) {
     await assert.rejects(transaction(b.id, String(a._id), type, amount));
   }
   await assert.rejects(transaction(b.id, String(a._id), "inflow", 1, "2026-02-30"), /date/);
@@ -99,13 +99,15 @@ test("cent arithmetic supports exact repayment without residual debt", async () 
   assert.equal(minorUnits(0.29), 29);
 });
 
-test("backdating and removing an earlier loan cannot produce negative historical debt", async () => {
+test("backdated repayments and repayments above the balance produce borrower credit", async () => {
   const b = await createBorrower(actor, "Ali"); const a = await bank();
   const loan = await transaction(b.id, String(a._id), "outflow", 100, "2026-10-02");
-  await assert.rejects(transaction(b.id, String(a._id), "inflow", 50, "2026-10-01"), /ledger date/);
+  await transaction(b.id, String(a._id), "inflow", 150, "2026-10-01");
   await transaction(b.id, String(a._id), "inflow", 100, "2026-10-03");
   await transaction(b.id, String(a._id), "outflow", 100, "2026-10-04");
-  await assert.rejects(deleteBankTransaction(actor, loan.id), /ledger date/);
+  assert.deepEqual((await getBorrowerLedger(b.id)).rows.map((r) => r.balance), [-150, -50, -150, -50]);
+  await deleteBankTransaction(actor, loan.id);
+  assert.equal((await getBorrowerLedger(b.id)).outstanding, -150);
   assert.equal(await BankTransaction.countDocuments(), 3);
 });
 

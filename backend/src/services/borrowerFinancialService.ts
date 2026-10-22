@@ -37,12 +37,12 @@ export async function createBorrowerTransaction(actor: BorrowerActor, input: Cre
       destination: input.type === "outflow" ? borrower.name : account.name,
       mode, referenceId: input.referenceId?.trim(), remarks: input.remarks?.trim(),
     }], { session });
-    borrowerTotals(await loanHistory(borrowerId, session), true);
+    borrowerTotals(await loanHistory(borrowerId, session));
     const updated = await BankAccount.updateOne({ _id: accountId, currentBalance: account.currentBalance }, {
       $set: { currentBalance: nextBalance / 100, [input.type === "inflow" ? "totalInflow" : "totalOutflow"]: nextTotal / 100 },
     }, { session });
     if (updated.matchedCount !== 1) throw new BorrowerError("Bank balance changed; retry the transaction", 409);
-    await borrowerAudit(actor, session, { action: "create", module: "bank_transactions", entityId: String(tx._id), description: `${input.type === "outflow" ? "Loan given" : "Loan payment"}: ${amount} — ${borrower.name}`, newValue: { borrowerId: String(borrowerId), accountId: String(accountId), type: tx.type, amount } });
+    await borrowerAudit(actor, session, { action: "create", module: "bank_transactions", entityId: String(tx._id), description: `${input.type === "outflow" ? "Payment given" : "Payment received"}: ${amount} — ${borrower.name}`, newValue: { borrowerId: String(borrowerId), accountId: String(accountId), type: tx.type, amount } });
     return { id: String(tx._id), borrowerId: String(borrowerId), borrowerName: borrower.name, accountId: String(accountId), accountName: account.name, date, type: tx.type, amount, source: tx.source, destination: tx.destination, mode: tx.mode, referenceId: tx.referenceId, remarks: tx.remarks };
   }, { readConcern: { level: "snapshot" }, writeConcern: { w: "majority" } });
 }
@@ -59,7 +59,7 @@ export async function deleteBorrowerTransaction(actor: BorrowerActor, id: string
     const account = await BankAccount.findById(tx.accountId).session(session).lean();
     if (!account) throw new BorrowerError("Account not found", 404);
     await BankTransaction.deleteOne({ _id: transactionId }, { session });
-    const totals = borrowerTotals(await loanHistory(tx.borrowerId, session), true);
+    const totals = borrowerTotals(await loanHistory(tx.borrowerId, session));
     const nextBalance = minorUnits(account.currentBalance) + (tx.type === "inflow" ? -minorUnits(tx.amount) : minorUnits(tx.amount));
     const nextTotal = minorUnits(tx.type === "inflow" ? account.totalInflow : account.totalOutflow) - minorUnits(tx.amount);
     if (!Number.isSafeInteger(nextBalance) || !Number.isSafeInteger(nextTotal)) throw new BorrowerError("Invalid amount: bank balance exceeds the supported range");
@@ -69,7 +69,7 @@ export async function deleteBorrowerTransaction(actor: BorrowerActor, id: string
       $set: { currentBalance: nextBalance / 100, [tx.type === "inflow" ? "totalInflow" : "totalOutflow"]: nextTotal / 100 },
     }, { session });
     if (updated.matchedCount !== 1) throw new BorrowerError("Bank balance changed; retry the transaction", 409);
-    if (borrower.archived && totals.outstanding > 0) await Borrower.updateOne({ _id: borrower._id }, { $set: { archived: false } }, { session });
-    await borrowerAudit(actor, session, { action: "delete", module: "bank_transactions", entityId: id, description: `Deleted ${tx.type === "outflow" ? "loan" : "loan payment"}: ${tx.amount} — ${borrower.name}`, oldValue: { borrowerId: String(tx.borrowerId), accountId: String(tx.accountId), type: tx.type, amount: tx.amount }, newValue: { outstanding: totals.outstanding, reactivated: borrower.archived && totals.outstanding > 0 } });
+    if (borrower.archived && totals.outstanding !== 0) await Borrower.updateOne({ _id: borrower._id }, { $set: { archived: false } }, { session });
+    await borrowerAudit(actor, session, { action: "delete", module: "bank_transactions", entityId: id, description: `Deleted ${tx.type === "outflow" ? "payment given" : "payment received"}: ${tx.amount} — ${borrower.name}`, oldValue: { borrowerId: String(tx.borrowerId), accountId: String(tx.accountId), type: tx.type, amount: tx.amount }, newValue: { outstanding: totals.outstanding, reactivated: borrower.archived && totals.outstanding !== 0 } });
   }, { readConcern: { level: "snapshot" }, writeConcern: { w: "majority" } });
 }

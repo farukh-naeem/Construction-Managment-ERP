@@ -7,7 +7,8 @@ import { User } from "../models/User.js";
 import { logAudit, getProjectName } from "./auditService.js";
 import { roleDisplay } from "./authService.js";
 import { resolveSiteManagerProjectId, getAssignedProjectIds } from "./projectAccessService.js";
-import { getEmployeeTotals, getEmployeeSnapshotForMonth } from "./employeeLedgerService.js";
+import { monthKeyPKT } from "../lib/pktDate.js";
+import { getEmployeeTotals, getEmployeeSnapshotForMonth, salaryForMonth } from "./employeeLedgerService.js";
 import type { MonthlySnapshot } from "./employeeLedgerService.js";
 import type { EmployeeCategory, EmployeeType } from "../models/Employee.js";
 
@@ -19,6 +20,7 @@ export interface EmployeePayload {
   role: string;
   type: EmployeeType;
   monthlySalary?: number;
+  salaryRevisions?: { effectiveMonth: string; monthlySalary: number; previousSalary?: number; isInitial?: boolean }[];
   dailyRate?: number;
   phone: string;
   category: EmployeeCategory;
@@ -69,6 +71,7 @@ function toPayload(
     role: string;
     type: EmployeeType;
     monthlySalary?: number;
+    salaryRevisions?: { effectiveMonth: string; monthlySalary: number; previousSalary?: number; isInitial?: boolean }[];
     dailyRate?: number;
     phone?: string;
     category?: EmployeeCategory;
@@ -88,6 +91,7 @@ function toPayload(
     role: doc.role,
     type: doc.type,
     monthlySalary: doc.monthlySalary,
+    salaryRevisions: doc.salaryRevisions?.map((revision) => ({ effectiveMonth: revision.effectiveMonth, monthlySalary: revision.monthlySalary, previousSalary: revision.previousSalary, isInitial: revision.isInitial })),
     dailyRate: doc.dailyRate,
     phone: doc.phone ?? "",
     category: doc.category ?? "Regular",
@@ -144,7 +148,7 @@ export async function listEmployees(
     ? "Machinery"
     : { $in: ["Regular", null] }; // retain existing employees created before the category field
   const docs = await Employee.find(query)
-    .select("_id projectId name role type monthlySalary dailyRate phone category machineId createdAt joiningDate endingDate")
+    .select("_id projectId name role type monthlySalary salaryRevisions dailyRate phone category machineId createdAt joiningDate endingDate")
     .lean();
   const projectIds = [...new Set(docs.map((d) => d.projectId.toString()))];
   const projects = await Project.find({ _id: { $in: projectIds } }).select("_id name").lean();
@@ -160,7 +164,7 @@ export async function listEmployees(
   let snapshots: (MonthlySnapshot | undefined)[] = [];
   if (month) {
     const snapshotResults = await Promise.allSettled(
-      docs.map((d) => getEmployeeSnapshotForMonth(d._id.toString(), month, d.createdAt, d.joiningDate, d.type, d.endingDate))
+      docs.map((d) => getEmployeeSnapshotForMonth(d._id.toString(), month, d.createdAt, d.joiningDate, d.type, d.endingDate, d.monthlySalary, d.salaryRevisions))
     );
     snapshots = snapshotResults.map((r) => (r.status === "fulfilled" ? r.value : undefined));
   }
@@ -263,6 +267,9 @@ export async function updateEmployee(
 
   const target = await Employee.findById(id);
   if (!target) throw new Error("Employee not found");
+  if (target.type === "Fixed" && input.monthlySalary != null) {
+    throw new Error("Use Change Salary and choose an effective month for fixed salary changes");
+  }
 
   const updates: Record<string, unknown> = {};
   if (input.name != null) updates.name = input.name.trim();
@@ -331,6 +338,72 @@ export async function updateEmployee(
 
   const project = await Project.findById(updated.projectId).select("name").lean();
   return toPayload(updated, project?.name);
+}
+
+export async function changeEmployeeSalary(
+  actor: { userId: string; email: string; role: string },
+  id: string,
+  input: { monthlySalary: number; effectiveMonth: string }
+): Promise<EmployeePayload> {
+  if (!mongoose.Types.ObjectId.isValid(id)) throw new Error("Invalid employee ID");
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.effectiveMonth)) throw new Error("Effective month must be valid (YYYY-MM)");
+  const salaryMinor = Math.round(input.monthlySalary * 100);
+  if (!Number.isFinite(input.monthlySalary) || input.monthlySalary <= 0 || !Number.isSafeInteger(salaryMinor) || Math.abs(input.monthlySalary * 100 - salaryMinor) > 0.0001) throw new Error("Valid monthly salary is required (up to two decimal places)");
+  return mongoose.connection.transaction(async (session) => {
+    const employee = await Employee.findById(id).session(session);
+    if (!employee) throw new Error("Employee not found");
+    if (employee.type !== "Fixed") throw new Error("Salary changes are only available for fixed-salary employees");
+    const firstMonth = employee.joiningDate?.trim().slice(0, 7) ?? (employee.createdAt ? monthKeyPKT(employee.createdAt) : "");
+    if (firstMonth && input.effectiveMonth < firstMonth) throw new Error("Effective month cannot be before the employee's joining month");
+    const lastMonth = employee.endingDate?.trim().slice(0, 7);
+    if (lastMonth && input.effectiveMonth > lastMonth) throw new Error("Effective month cannot be after the employee's ending month");
+
+    const revisions = (employee.salaryRevisions ?? []).map((revision) => ({
+      effectiveMonth: revision.effectiveMonth,
+      monthlySalary: revision.monthlySalary,
+      previousSalary: revision.previousSalary,
+      changedAt: revision.changedAt,
+      isInitial: revision.isInitial,
+    }));
+    if (!revisions.length && firstMonth) revisions.push({ effectiveMonth: firstMonth, monthlySalary: employee.monthlySalary ?? 0, previousSalary: undefined, changedAt: employee.createdAt, isInitial: true });
+    const currentForEffectiveMonth = salaryForMonth({ monthlySalary: employee.monthlySalary, salaryRevisions: revisions }, input.effectiveMonth);
+    if (input.monthlySalary <= currentForEffectiveMonth) throw new Error("New salary must be higher than the salary already effective for that month");
+    const previousSalary = currentForEffectiveMonth;
+    const nextRevision = revisions.filter((revision) => !revision.isInitial && revision.effectiveMonth > input.effectiveMonth).sort((a, b) => a.effectiveMonth.localeCompare(b.effectiveMonth))[0];
+    if (nextRevision && input.monthlySalary > nextRevision.monthlySalary) throw new Error(`New salary cannot exceed the later salary revision effective ${nextRevision.effectiveMonth}`);
+    const updatedRevisions = revisions.filter((revision) => revision.effectiveMonth !== input.effectiveMonth || revision.isInitial);
+    updatedRevisions.push({ effectiveMonth: input.effectiveMonth, monthlySalary: input.monthlySalary, previousSalary, changedAt: new Date(), isInitial: false });
+    updatedRevisions.sort((a, b) => a.effectiveMonth.localeCompare(b.effectiveMonth));
+    let priorSalary = updatedRevisions[0]?.monthlySalary ?? employee.monthlySalary ?? 0;
+    for (const revision of updatedRevisions) {
+      if (revision.isInitial) { priorSalary = revision.monthlySalary; continue; }
+      revision.previousSalary = priorSalary;
+      priorSalary = revision.monthlySalary;
+    }
+    const latest = updatedRevisions[updatedRevisions.length - 1];
+    employee.salaryRevisions = updatedRevisions;
+    employee.monthlySalary = latest.monthlySalary;
+    await employee.save({ session });
+
+    const actorUser = await User.findById(actor.userId).session(session).lean();
+    const role = roleDisplay[actor.role as keyof typeof roleDisplay] ?? actor.role;
+    await logAudit({
+      userId: actor.userId,
+      userName: actorUser?.name ?? "Unknown",
+      userEmail: actor.email,
+      role,
+      action: "update",
+      module: "employees",
+      entityId: id,
+      projectId: employee.projectId.toString(),
+      projectName: await getProjectName(employee.projectId.toString()),
+      description: `Changed fixed salary for ${employee.name} from ${previousSalary} to ${input.monthlySalary}, effective ${input.effectiveMonth}`,
+      oldValue: { monthlySalary: previousSalary, effectiveMonth: input.effectiveMonth },
+      newValue: { monthlySalary: input.monthlySalary, effectiveMonth: input.effectiveMonth },
+    }, session);
+    const project = await Project.findById(employee.projectId).select("name").session(session).lean();
+    return toPayload(employee, project?.name);
+  });
 }
 
 /** Prevent delete if employee has any payment records (referential integrity). */

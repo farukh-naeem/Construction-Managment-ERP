@@ -10,6 +10,7 @@ export interface IEmployee {
   role: string;
   type: EmployeeType;
   monthlySalary?: number;
+  salaryRevisions?: { effectiveMonth: string; monthlySalary: number; previousSalary?: number; changedAt: Date; isInitial?: boolean }[];
   dailyRate?: number;
   phone: string;
   category: EmployeeCategory;
@@ -33,6 +34,13 @@ const employeeSchema = new mongoose.Schema<IEmployee>(
     role: { type: String, required: true, trim: true },
     type: { type: String, required: true, enum: ["Fixed", "Daily"] },
     monthlySalary: { type: Number, min: 0 },
+    salaryRevisions: [{
+      effectiveMonth: { type: String, required: true, match: /^\d{4}-(0[1-9]|1[0-2])$/ },
+      monthlySalary: { type: Number, required: true, min: 0 },
+      previousSalary: { type: Number, min: 0 },
+      changedAt: { type: Date, default: Date.now },
+      isInitial: { type: Boolean, default: false },
+    }],
     dailyRate: { type: Number, min: 0 },
     phone: { type: String, default: "", trim: true },
     category: { type: String, enum: ["Regular", "Machinery"], default: "Regular", required: true },

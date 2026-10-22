@@ -219,7 +219,7 @@ export async function getBankAccountLedger(accountId: string, startDate?: string
     const project = doc.projectId as unknown as { _id?: mongoose.Types.ObjectId } | null;
     const head = doc.customHeadId as unknown as { _id?: mongoose.Types.ObjectId } | null;
     const key = doc.borrowerId ? "borrower" : project?._id ? `project:${project._id}` : head?._id ? `head:${head._id}` : `legacy:${doc.destination}`;
-    rows.push({ id: doc._id.toString(), date: doc.date, borrowerId: doc.borrowerId?.toString(), particulars: (doc.borrowerId ? [doc.type === "inflow" ? "Loan payment" : "Loan given", doc.type === "inflow" ? doc.source : doc.destination, doc.referenceId, doc.remarks] : doc.type === "inflow" ? [doc.source, doc.referenceId, doc.remarks] : [doc.referenceId, doc.remarks]).filter(Boolean).join(" — ") || "—", received: doc.type === "inflow" ? doc.amount : undefined, outflows: doc.type === "outflow" ? { [key]: doc.amount } : {}, balance });
+    rows.push({ id: doc._id.toString(), date: doc.date, borrowerId: doc.borrowerId?.toString(), particulars: (doc.borrowerId ? [doc.type === "inflow" ? "Payment received" : "Payment given", doc.type === "inflow" ? doc.source : doc.destination, doc.referenceId, doc.remarks] : doc.type === "inflow" ? [doc.source, doc.referenceId, doc.remarks] : [doc.referenceId, doc.remarks]).filter(Boolean).join(" — ") || "—", received: doc.type === "inflow" ? doc.amount : undefined, outflows: doc.type === "outflow" ? { [key]: doc.amount } : {}, balance });
   }
   return { accountName: account.name, accountNumber: account.accountNumber ?? "", columns: orderedColumns, rows, openingBalance: account.openingBalance ?? 0 };
 }

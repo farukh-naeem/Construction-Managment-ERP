@@ -4,6 +4,7 @@ import {
   getEmployeeById,
   createEmployee,
   updateEmployee,
+  changeEmployeeSalary,
   deleteEmployee,
   type CreateEmployeeInput,
   type UpdateEmployeeInput,
@@ -78,8 +79,24 @@ export async function update(req: AuthRequest, res: Response) {
     const message = err instanceof Error ? err.message : "Failed to update employee";
     const status =
       message === "Employee not found" ? 404
-        : message.includes("required") || message.includes("must be") ? 400
+        : message.includes("required") || message.includes("must be") || message.includes("Use Change Salary") ? 400
         : 500;
+    res.status(status).json({ error: message });
+  }
+}
+
+export async function changeSalary(req: AuthRequest, res: Response) {
+  try {
+    const actor = req.user!;
+    const employee = await changeEmployeeSalary(
+      { userId: actor.userId, email: actor.email, role: actor.role },
+      req.params.employeeId,
+      req.body as { monthlySalary: number; effectiveMonth: string }
+    );
+    res.json(employee);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to change salary";
+    const status = message === "Employee not found" ? 404 : message.includes("required") || message.includes("must") || message.includes("cannot") || message.includes("only available") || message.includes("higher") ? 400 : 500;
     res.status(status).json({ error: message });
   }
 }

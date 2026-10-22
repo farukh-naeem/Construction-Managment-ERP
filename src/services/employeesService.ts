@@ -15,6 +15,7 @@ export interface ApiEmployee {
   role: string;
   type: ApiEmployeeType;
   monthlySalary?: number;
+  salaryRevisions?: { effectiveMonth: string; monthlySalary: number; previousSalary?: number; isInitial?: boolean }[];
   dailyRate?: number;
   phone: string;
   category: ApiEmployeeCategory;
@@ -75,6 +76,7 @@ export type AttendanceSnapshot = AttendanceSnapshotFixed | AttendanceSnapshotDai
 export interface ApiEmployeeWithSnapshot extends ApiEmployee {
   snapshot?: {
     payable: number;
+    monthlySalary?: number;
     paid: number;
     remaining: number;
     advancePaid?: number;
@@ -118,6 +120,13 @@ export async function createEmployee(input: CreateEmployeeInput): Promise<ApiEmp
 export async function updateEmployee(id: string, input: UpdateEmployeeInput): Promise<ApiEmployee> {
   return api<ApiEmployee>(`/api/employees/${id}`, {
     method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function changeEmployeeSalary(id: string, input: { monthlySalary: number; effectiveMonth: string }): Promise<ApiEmployee> {
+  return api<ApiEmployee>(`/api/employees/${id}/salary-revisions`, {
+    method: "POST",
     body: JSON.stringify(input),
   });
 }

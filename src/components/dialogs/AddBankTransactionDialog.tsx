@@ -111,7 +111,6 @@ export function AddBankTransactionDialog({
       const cents = Math.round(amt * 100);
       if (!Number.isSafeInteger(cents) || amt !== cents / 100) { toast.error("Use at most two decimal places within the supported range"); return; }
       if (!selectedBorrower || selectedBorrower.archived) { toast.error("Select an active borrower"); return; }
-      if (type === "inflow" && cents > Math.round(selectedBorrower.outstanding * 100)) { toast.error("Repayment exceeds the borrower’s outstanding loan"); return; }
       if (type === "outflow" && cents > Math.round((selectedAccount?.currentBalance ?? 0) * 100)) { toast.error("Insufficient bank balance for this loan"); return; }
     }
     if (type === "inflow" && !borrowerId && !source.trim() && !clientId) {
@@ -254,7 +253,7 @@ export function AddBankTransactionDialog({
             <Label className="text-xs">Borrower (optional)</Label>
             <Combobox options={borrowerOptions} value={borrowerId} onValueChange={chooseBorrower} placeholder={borrowersLoading ? "Loading borrowers..." : "Select borrower"} searchPlaceholder="Search borrowers..." emptyText="No active borrower found" disabled={borrowersLoading || !!borrowersError} className="mt-0.5 h-9" />
             {borrowersError && <p className="text-xs text-destructive mt-1">{borrowersError}</p>}
-            {selectedBorrower && <p className="text-xs text-muted-foreground mt-1">Amount owed across all banks: {formatCurrency(selectedBorrower.outstanding)}{type === "inflow" ? ". This payment reduces the loan owed." : ". This loan increases the amount owed."}</p>}
+            {selectedBorrower && <p className="text-xs text-muted-foreground mt-1">Current balance across all banks: {formatCurrency(selectedBorrower.outstanding)}{type === "inflow" ? ". This payment reduces the balance; any excess becomes payable to the borrower." : ". This payment increases the balance owed by the borrower."}</p>}
           </div>
           {type === "inflow" ? (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

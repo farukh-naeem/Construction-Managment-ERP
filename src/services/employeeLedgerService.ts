@@ -17,6 +17,7 @@ export interface ApiEmployeePayment {
 
 export interface ApiMonthlySnapshot {
   payable: number;
+  monthlySalary?: number;
   paid: number;
   remaining: number;
   /** Sum of Advance payments for the month; omit on older API responses */
@@ -35,7 +36,7 @@ export interface ApiEmployeeLedger {
 }
 
 export interface ApiEmployeeLedgerRow {
-  type: "payable" | "payment" | "previous";
+  type: "payable" | "payment" | "salary_change" | "previous";
   id: string;
   date: string;
   month: string;
@@ -43,6 +44,8 @@ export interface ApiEmployeeLedgerRow {
   remarks?: string;
   paymentMethod?: string;
   paymentType?: string;
+  previousSalary?: number;
+  newSalary?: number;
   runningTotal: number;
 }
 

@@ -43,6 +43,18 @@ function effectiveFirstMonth(employee: { joiningDate?: string; createdAt?: Date 
   return employee.createdAt ? monthKeyPKT(new Date(employee.createdAt)) : null;
 }
 
+export function salaryForMonth(employee: { monthlySalary?: number; salaryRevisions?: { effectiveMonth: string; monthlySalary: number }[] }, month: string): number {
+  const revisions = [...(employee.salaryRevisions ?? [])].sort((a, b) => a.effectiveMonth.localeCompare(b.effectiveMonth));
+  let salary = employee.monthlySalary ?? 0;
+  for (const revision of revisions) {
+    if (revision.effectiveMonth > month) break;
+    salary = revision.monthlySalary;
+  }
+  // Before the first recorded revision, the earliest revision is the salary baseline.
+  if (revisions.length && month < revisions[0].effectiveMonth) return revisions[0].monthlySalary;
+  return salary;
+}
+
 /** Last month (YYYY-MM) the employee is eligible for salary/attendance data, or null when still active.
  * Once set (via endingDate — the employee has left), no payable accrues for any month after this one;
  * the ending month itself is prorated up to the ending day (see endingDayInMonth). */
@@ -103,7 +115,7 @@ function dailyMapFromEntries(
  * Compute payable from explicit attendance entries (no DB read). Used to validate before saving.
  */
 function computePayableFromEntries(
-  employee: { type: string; monthlySalary?: number; dailyRate?: number; endingDate?: string },
+  employee: { type: string; monthlySalary?: number; salaryRevisions?: { effectiveMonth: string; monthlySalary: number }[]; dailyRate?: number; endingDate?: string },
   month: string,
   fixedEntries: { day: number; status: string }[] | undefined,
   dailyEntries: { day: number; hoursWorked?: number; overtimeHours?: number; status: string }[] | undefined,
@@ -113,7 +125,7 @@ function computePayableFromEntries(
 
   if (employee.type === "Fixed") {
     const fixedAttendance = fixedMapFromEntries(fixedEntries);
-    const baseSalary = employee.monthlySalary ?? 0;
+    const baseSalary = salaryForMonth(employee, month);
     const unpaidLeaveDaySet = new Set<number>(
       Object.entries(fixedAttendance)
         .filter(([, status]) => status === "unpaid_leave")
@@ -168,7 +180,7 @@ export async function computePayableForMonth(
 
   if (employee.type === "Fixed") {
     const fixedAttendance = fixedMap(attendance ?? null);
-    const baseSalary = employee.monthlySalary ?? 0;
+    const baseSalary = salaryForMonth(employee, month);
     const unpaidLeaveDaySet = new Set<number>(
       Object.entries(fixedAttendance)
         .filter(([, status]) => status === "unpaid_leave")
@@ -297,7 +309,9 @@ export async function getEmployeeSnapshotForMonth(
   employeeCreatedAt?: Date,
   employeeJoiningDate?: string,
   employeeType?: "Fixed" | "Daily",
-  employeeEndingDate?: string
+  employeeEndingDate?: string,
+  employeeMonthlySalary?: number,
+  salaryRevisions?: { effectiveMonth: string; monthlySalary: number }[]
 ): Promise<MonthlySnapshot | undefined> {
   let firstMonth: string | null = null;
   let lastMonth: string | null = null;
@@ -313,7 +327,7 @@ export async function getEmployeeSnapshotForMonth(
   if (firstMonth && month < firstMonth) return undefined;
   if (lastMonth && month > lastMonth) return undefined;
 
-  const [payable, paid, advancePaid, attendance, lastNonAdvance] = await Promise.all([
+  const [payable, paid, advancePaid, attendance, lastNonAdvance, salaryRecord] = await Promise.all([
     computePayableForMonth(employeeId, month),
     getMonthPaid(employeeId, month),
     getMonthAdvancePaid(employeeId, month),
@@ -324,6 +338,7 @@ export async function getEmployeeSnapshotForMonth(
       .sort({ date: -1 })
       .select("date")
       .lean(),
+    employeeMonthlySalary == null ? Employee.findById(employeeId).select("monthlySalary salaryRevisions").lean() : Promise.resolve(null),
   ]);
   const remaining = Math.max(0, payable - paid);
   const monthEnd = monthEndDate(month);
@@ -337,6 +352,7 @@ export async function getEmployeeSnapshotForMonth(
       : undefined;
   return {
     payable,
+    ...(employeeType === "Fixed" && { monthlySalary: salaryForMonth({ monthlySalary: employeeMonthlySalary ?? salaryRecord?.monthlySalary, salaryRevisions: salaryRevisions ?? salaryRecord?.salaryRevisions }, month) }),
     paid,
     remaining,
     advancePaid,
@@ -657,6 +673,7 @@ export type AttendanceSnapshot = AttendanceSummaryFixed | AttendanceSummaryDaily
 
 export interface MonthlySnapshot {
   payable: number;
+  monthlySalary?: number;
   paid: number;
   remaining: number;
   /** Sum of Advance payments recorded for this month (for salary sheet net). */
@@ -878,7 +895,7 @@ export interface GetEmployeeLedgerResult {
 }
 
 export interface EmployeeLedgerRow {
-  type: "payable" | "payment";
+  type: "payable" | "payment" | "salary_change";
   id: string;
   date: string;
   month: string;
@@ -886,6 +903,8 @@ export interface EmployeeLedgerRow {
   remarks?: string;
   paymentMethod?: string;
   paymentType?: string;
+  previousSalary?: number;
+  newSalary?: number;
   runningTotal: number;
 }
 
@@ -965,8 +984,21 @@ export async function getEmployeeLedger(
       }
     }
   }
+  const salaryChangeRows: Omit<EmployeeLedgerRow, "runningTotal">[] = (employee?.salaryRevisions ?? [])
+    .filter((revision) => !revision.isInitial)
+    .map((revision) => ({
+      type: "salary_change",
+      id: `salary-revision-${revision.effectiveMonth}`,
+      date: `${revision.effectiveMonth}-01`,
+      month: revision.effectiveMonth,
+      amount: revision.monthlySalary - (revision.previousSalary ?? 0),
+      previousSalary: revision.previousSalary,
+      newSalary: revision.monthlySalary,
+      remarks: `Salary increased from ${(revision.previousSalary ?? 0).toLocaleString()} to ${revision.monthlySalary.toLocaleString()} per month`,
+    }));
   const allRows: Omit<EmployeeLedgerRow, "runningTotal">[] = [
     ...payableRows,
+    ...salaryChangeRows,
     ...allPaymentDocs.map((payment) => ({ type: "payment" as const, id: payment._id.toString(), date: payment.date, month: payment.month, amount: payment.amount, remarks: payment.remarks, paymentMethod: payment.paymentMethod, paymentType: payment.type })),
   ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   // Every payment type — including Advance — settles against the running balance the same way:
@@ -979,7 +1011,7 @@ export async function getEmployeeLedger(
   for (const row of allRows) {
     if (row.type === "payable") {
       balance += row.amount;
-    } else {
+    } else if (row.type === "payment") {
       balance -= row.amount;
     }
     if (options?.startDate && row.date < options.startDate) {
@@ -1025,6 +1057,7 @@ export async function getEmployeeLedgerSnapshot(
       : undefined;
   const snapshot: MonthlySnapshot = {
     payable,
+    ...(employee.type === "Fixed" && { monthlySalary: salaryForMonth(employee, m) }),
     paid,
     remaining,
     advancePaid,

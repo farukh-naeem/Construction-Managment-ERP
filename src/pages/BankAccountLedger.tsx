@@ -139,7 +139,7 @@ export default function BankAccountLedger() {
           </table>
         </div>
       )}
-      <AlertDialog open={!!deleting} onOpenChange={(open) => !open && !saving && setDeleting(undefined)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete borrower payment?</AlertDialogTitle><AlertDialogDescription>This reverses the bank transaction and removes it from the borrower ledger. The bank balance and every borrower running balance must remain nonnegative. Archived borrowers are reactivated if money becomes owed again.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel><AlertDialogAction disabled={saving} onClick={(e) => { e.preventDefault(); void remove(); }}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+      <AlertDialog open={!!deleting} onOpenChange={(open) => !open && !saving && setDeleting(undefined)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete borrower payment?</AlertDialogTitle><AlertDialogDescription>This reverses the bank transaction and removes it from the borrower ledger. The bank balance must remain nonnegative; the borrower balance may be positive or negative.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel><AlertDialogAction disabled={saving} onClick={(e) => { e.preventDefault(); void remove(); }}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     </Layout>
   );
 }

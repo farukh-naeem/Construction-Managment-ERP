@@ -41,7 +41,7 @@ type EmployeeTab = "Fixed" | "Daily";
 
 function employeeRateLabel(employee: ApiEmployeeWithSnapshot) {
   return employee.type === "Fixed"
-    ? `${formatCurrency(employee.monthlySalary ?? 0)}/mo`
+    ? `${formatCurrency(employee.snapshot?.monthlySalary ?? employee.monthlySalary ?? 0)}/mo`
     : `${formatCurrency(employee.dailyRate ?? 0)}/day`;
 }
 
@@ -74,7 +74,7 @@ function salaryAdvanceAmount(
 }
 
 function salaryBasicAmount(employee: ApiEmployeeWithSnapshot): number {
-  return employee.type === "Fixed" ? employee.monthlySalary ?? 0 : employee.dailyRate ?? 0;
+  return employee.type === "Fixed" ? employee.snapshot?.monthlySalary ?? employee.monthlySalary ?? 0 : employee.dailyRate ?? 0;
 }
 
 function salaryWorkingDays(

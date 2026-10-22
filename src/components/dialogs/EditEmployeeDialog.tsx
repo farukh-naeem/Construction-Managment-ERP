@@ -47,7 +47,7 @@ export function EditEmployeeDialog({
       setName(employee.name);
       setRole(employee.role);
       setType(employee.type);
-      setMonthlySalary(employee.type === "Fixed" && employee.monthlySalary != null ? String(employee.monthlySalary) : "");
+      setMonthlySalary("");
       setDailyRate(employee.type === "Daily" && employee.dailyRate != null ? String(employee.dailyRate) : "");
       setPhone(employee.phone ?? "");
       setJoiningDate(employee.joiningDate ?? employee.createdAt?.slice(0, 10) ?? "");
@@ -80,7 +80,7 @@ export function EditEmployeeDialog({
         joiningDate: joiningDate.trim(),
         endingDate: endingDate.trim(),
       };
-      if (type === "Fixed") {
+      if (type === "Fixed" && employee.type !== "Fixed") {
         const sal = parseFloat(monthlySalary);
         if (isNaN(sal) || sal <= 0) {
           toast.error("Valid monthly salary required");
@@ -137,10 +137,15 @@ export function EditEmployeeDialog({
               </SelectContent>
             </Select>
           </div>
-          {type === "Fixed" && (
+          {type === "Fixed" && employee.type !== "Fixed" && (
             <div>
               <Label>Monthly Salary *</Label>
               <Input type="number" min={1} value={monthlySalary} onChange={(e) => setMonthlySalary(e.target.value)} className="mt-1" />
+            </div>
+          )}
+          {type === "Fixed" && employee.type === "Fixed" && (
+            <div className="rounded-md border bg-muted/30 p-3 text-sm">
+              Fixed salary changes are recorded separately with an effective month. Use the Change Salary action on the employee ledger.
             </div>
           )}
           {type === "Daily" && (

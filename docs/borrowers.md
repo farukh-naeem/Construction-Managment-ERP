@@ -1,10 +1,11 @@
 # Borrowers and linked loan ledgers
 
 Borrower loans and repayments are canonical `BankTransaction` documents with
-`borrowerId`. There is no duplicate borrower payment collection or stored debt
-balance. Both ledger views read the same records. Outflows increase debt;
-inflows decrease debt across all banks. Historical transaction names survive
-borrower renames.
+`borrowerId`. There is no duplicate borrower payment collection or stored
+balance. Both ledger views read the same records. Outflows increase the amount
+the borrower owes; inflows reduce it and may make the balance negative, meaning
+the company owes the borrower. Historical transaction names survive borrower
+renames.
 
 Admin and Super Admin can create borrowers, edit names, and record payments.
 Super Admin can delete payment entries or remove a borrower. Payments cannot be
@@ -15,16 +16,15 @@ archived borrower's repayment reactivates them if debt becomes outstanding.
 ## Integrity
 
 All borrower financial mutations write the same borrower revision inside a
-retryable MongoDB transaction. This serializes concurrent repayments even when
+retryable MongoDB transaction. This serializes concurrent payments even when
 different banks receive them. Archive/delete uses the same guard. Bank updates,
 payment changes, borrower changes, and audit records commit together.
 
 Amounts must be finite, positive, exactly representable in at most two decimal
-places, and within safe integer minor-unit limits. The entire chronological
-borrower history (date, creation time, ID) must remain nonnegative. Bank debits
-must fit the current balance; deleting a repayment is blocked if its cash has
-already been spent. Existing non-borrower transaction paths retain their existing
-rules.
+places, and within safe integer minor-unit limits. Borrower balances may be
+positive, zero, or negative. Bank debits must fit the current balance; deleting
+a payment is blocked if its reversal would make the bank balance negative.
+Existing non-borrower transaction paths retain their existing rules.
 
 Bank account deletion also compares the original account timestamp and balances
 at the final delete, preventing a loan committed after the linked-transaction
@@ -37,7 +37,7 @@ count check from losing its bank account.
 - `POST /api/borrowers`: `{ name }`.
 - `PATCH /api/borrowers/:id`: `{ name }`; historical payments are not rewritten.
 - `DELETE /api/borrowers/:id`: delete empty records, archive settled records,
-  reject pending debt.
+  reject a nonzero balance.
 - `GET /api/borrowers/:id/ledger`: includes totals and all bank payment rows.
   Optional `startDate` and `endDate` filter rows after running balances are computed.
 - `POST /api/bank-transactions`: optional `borrowerId` with existing account,
@@ -77,8 +77,9 @@ MongoDB test binary on its first run.
    `{ borrowerId: 1, date: 1, createdAt: 1, _id: 1 }` with
    `{ borrowerId: { $exists: true } }`. Index creation can scan the collection;
    schedule it using the existing production maintenance practice.
-4. In staging, lend from two banks, repay into both, reject overpayment and
-   insufficient funds, delete through each ledger, archive a settled borrower,
+4. In staging, make payments from two banks, receive more than the balance owed,
+   confirm the borrower balance turns negative, verify insufficient funds,
+   delete through each ledger, archive a settled borrower,
    and verify reactivation after repayment deletion. Recheck a client payment,
    custom-head outflow, project funding, and customer-payment protection.
 5. Deploy the frontend with its existing API configuration. Monitor rejected

@@ -68,6 +68,7 @@ import {
 } from "@/services/employeeLedgerService";
 import { deleteEmployee, type ApiEmployee } from "@/services/employeesService";
 import { EditEmployeeDialog } from "@/components/dialogs/EditEmployeeDialog";
+import { ChangeEmployeeSalaryDialog } from "@/components/dialogs/ChangeEmployeeSalaryDialog";
 import { TablePagination } from "@/components/TablePagination";
 import { formatDisplayDate, todayPKT } from "@/lib/pktDate";
 
@@ -456,6 +457,7 @@ export default function EmployeeLedger() {
   const [savingPayment, setSavingPayment] = useState(false);
   const [deleteConfirmPayment, setDeleteConfirmPayment] = useState<ApiEmployeePayment | null>(null);
   const [editEmployeeOpen, setEditEmployeeOpen] = useState(false);
+  const [changeSalaryOpen, setChangeSalaryOpen] = useState(false);
   const [deleteConfirmEmployee, setDeleteConfirmEmployee] = useState<ApiEmployee | null>(null);
 
   // Multi-select attendance state
@@ -937,6 +939,7 @@ export default function EmployeeLedger() {
             </div>
             {canEditDelete && (
               <>
+                {employee.type === "Fixed" && <Button variant="outline" size="sm" onClick={() => setChangeSalaryOpen(true)}>Change Salary</Button>}
                 <Button
                   variant="outline"
                   size="icon"
@@ -970,6 +973,13 @@ export default function EmployeeLedger() {
         employee={employee}
         onSuccess={refetchEmployee}
       />
+      <ChangeEmployeeSalaryDialog
+        open={changeSalaryOpen}
+        onOpenChange={setChangeSalaryOpen}
+        employee={employee}
+        defaultMonth={selectedMonth}
+        onSuccess={() => { void refetchEmployee(); void refetchLedger(); void refetchSnapshot(); }}
+      />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <StatusBadge status={employee.type} />
@@ -994,7 +1004,7 @@ export default function EmployeeLedger() {
             </p>
             <p className="mt-1 text-lg font-semibold">
               {employee.type === "Fixed"
-                ? formatCurrency(employee.monthlySalary ?? 0)
+                ? formatCurrency(snapshot?.monthlySalary ?? employee.monthlySalary ?? 0)
                 : formatCurrency(employee.dailyRate ?? 0)}
             </p>
           </div>
@@ -1089,7 +1099,7 @@ export default function EmployeeLedger() {
                     <td className="px-3 py-2">{formatDisplayDate(payment.date)}</td>
                     <td className="px-3 py-2">{payment.month ? monthLabel(payment.month) : "—"}</td>
                     <td className="px-3 py-2">{payment.remarks ?? "—"}{payment.paymentMethod ? ` · ${payment.paymentMethod}` : ""}</td>
-                    <td className="px-3 py-2 text-right font-mono">{payment.type === "payable" ? formatCurrency(payment.amount) : "—"}</td>
+                    <td className="px-3 py-2 text-right font-mono">{payment.type === "payable" ? formatCurrency(payment.amount) : payment.type === "salary_change" ? `${formatCurrency(payment.newSalary ?? 0)}/mo` : "—"}</td>
                     <td className="px-3 py-2 text-right font-mono">{payment.type === "payment" ? formatCurrency(payment.amount) : "—"}</td>
                     <td className={`px-3 py-2 text-right font-mono font-semibold ${payment.runningTotal < 0 ? "text-success" : ""}`}>{formatCurrency(payment.runningTotal)}</td>
                 {!isSiteManager && payment.type === "payment" && (

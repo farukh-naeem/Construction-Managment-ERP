@@ -6,6 +6,7 @@ export interface ApiConsumableItem {
   name: string;
   /** Legacy value only; units are selected per purchase or consumption row. */
   unit?: string;
+  openingStock?: number;
   currentStock: number;
   totalPurchased: number;
   totalAmount: number;
@@ -16,6 +17,7 @@ export interface ApiConsumableItem {
 export interface CreateConsumableItemInput {
   projectId: string;
   name: string;
+  openingStock?: number;
 }
 
 export interface UpdateConsumableItemInput {

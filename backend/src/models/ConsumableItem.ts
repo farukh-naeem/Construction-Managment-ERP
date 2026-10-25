@@ -5,6 +5,7 @@ export interface IConsumableItem {
   projectId: mongoose.Types.ObjectId;
   name: string;
   unit?: string;
+  openingStock: number;
   currentStock: number;
   totalPurchased: number;
   totalAmount: number;
@@ -20,6 +21,7 @@ const consumableItemSchema = new mongoose.Schema<IConsumableItem>(
     name: { type: String, required: true, trim: true },
     // Units are recorded per purchase/consumption movement, not per item.
     unit: { type: String, default: "", trim: true },
+    openingStock: { type: Number, default: 0, min: 0 },
     currentStock: { type: Number, default: 0, min: 0 },
     totalPurchased: { type: Number, default: 0, min: 0 },
     totalAmount: { type: Number, default: 0, min: 0 },

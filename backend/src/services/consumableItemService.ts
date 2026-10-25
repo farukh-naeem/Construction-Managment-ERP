@@ -17,6 +17,7 @@ export interface ConsumableItemPayload {
   name: string;
   /** Legacy item-level unit; units now belong to individual movements. */
   unit?: string;
+  openingStock: number;
   currentStock: number;
   totalPurchased: number;
   totalAmount: number;
@@ -27,6 +28,7 @@ export interface ConsumableItemPayload {
 export interface CreateConsumableItemInput {
   projectId: string;
   name: string;
+  openingStock?: number;
   unit?: string;
 }
 
@@ -40,6 +42,7 @@ function toPayload(doc: {
   projectId: mongoose.Types.ObjectId;
   name: string;
   unit?: string;
+  openingStock?: number;
   currentStock?: number;
   totalPurchased?: number;
   totalAmount?: number;
@@ -51,6 +54,7 @@ function toPayload(doc: {
     projectId: doc.projectId?.toString() ?? "",
     name: doc.name,
     unit: doc.unit,
+    openingStock: doc.openingStock ?? 0,
     currentStock: doc.currentStock ?? 0,
     totalPurchased: doc.totalPurchased ?? 0,
     totalAmount: doc.totalAmount ?? 0,
@@ -142,6 +146,12 @@ export async function createConsumableItem(
   input: CreateConsumableItemInput
 ): Promise<ConsumableItemPayload> {
   if (!input.name?.trim()) throw new Error("Item name is required");
+  const rawOpeningStock = input.openingStock === undefined ? 0 : input.openingStock;
+  if (typeof rawOpeningStock !== "number" || !Number.isFinite(rawOpeningStock) || rawOpeningStock < 0
+    || !Number.isSafeInteger(Math.round(rawOpeningStock * 100))) {
+    throw new Error("Opening stock must be a valid non-negative quantity");
+  }
+  const openingStock = Math.round(rawOpeningStock * 100) / 100;
 
   let projectId: string;
   if (actor.role === "site_manager") {
@@ -164,7 +174,8 @@ export async function createConsumableItem(
     projectId,
     name: input.name.trim(),
     unit: "",
-    currentStock: 0,
+    openingStock,
+    currentStock: openingStock,
     totalPurchased: 0,
     totalAmount: 0,
     totalPaid: 0,
@@ -184,7 +195,7 @@ export async function createConsumableItem(
     projectId: item.projectId?.toString(),
     projectName: await getProjectName(item.projectId?.toString()),
     description: `Created consumable item: ${item.name}`,
-    newValue: { name: item.name },
+    newValue: { name: item.name, openingStock },
   });
 
   return toPayload(item);

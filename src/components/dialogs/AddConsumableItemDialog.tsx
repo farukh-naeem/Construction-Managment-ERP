@@ -21,18 +21,25 @@ interface AddConsumableItemDialogProps {
 
 export function AddConsumableItemDialog({ open, onOpenChange, projectId, onSuccess }: AddConsumableItemDialogProps) {
   const [name, setName] = useState("");
+  const [openingStock, setOpeningStock] = useState("0");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) { toast.error("Item name is required"); return; }
     if (!projectId) { toast.error("No project selected"); return; }
+    const quantity = Number(openingStock);
+    if (!Number.isFinite(quantity) || quantity < 0 || !Number.isSafeInteger(Math.round(quantity * 100))) {
+      toast.error("Opening stock must be a valid non-negative quantity");
+      return;
+    }
     setLoading(true);
     try {
-      await createConsumableItem({ projectId, name: name.trim() });
+      await createConsumableItem({ projectId, name: name.trim(), openingStock: quantity });
       toast.success("Item added");
       onSuccess();
       setName("");
+      setOpeningStock("0");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add item");
     } finally {
@@ -48,8 +55,13 @@ export function AddConsumableItemDialog({ open, onOpenChange, projectId, onSucce
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <Label>Item Name *</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Cement" className="mt-1" />
+            <Label htmlFor="consumable-item-name">Item Name *</Label>
+            <Input id="consumable-item-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Cement" className="mt-1" />
+          </div>
+          <div>
+            <Label htmlFor="consumable-opening-stock">Opening Stock</Label>
+            <Input id="consumable-opening-stock" type="number" min="0" step="0.01" value={openingStock} onChange={(e) => setOpeningStock(e.target.value)} className="mt-1" />
+            <p className="mt-1 text-sm text-muted-foreground">Stock already available before you start recording purchases. Leave at 0 if none.</p>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

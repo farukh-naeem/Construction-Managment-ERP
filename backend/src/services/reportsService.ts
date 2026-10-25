@@ -71,7 +71,8 @@ export async function getDailyProgressReport(
   const materialRows = items.map((item) => {
     const id = item._id.toString();
     const current = material.get(`${id}:current`) ?? 0;
-    const previous = material.get(`${id}:previous`) ?? 0;
+    // Opening stock is the carried-forward balance before recorded purchases.
+    const previous = (item.openingStock ?? 0) + (material.get(`${id}:previous`) ?? 0);
     return { itemId: id, name: item.name, current, previous, total: current + previous };
   });
   let dieselTank = null;
@@ -88,7 +89,7 @@ export async function getDailyProgressReport(
       ]),
     ]);
     const received = receivedRows.find((r) => r._id === "current")?.value ?? 0;
-    const previousReceived = receivedRows.find((r) => r._id === "previous")?.value ?? 0;
+    const previousReceived = (dieselItem.openingStock ?? 0) + (receivedRows.find((r) => r._id === "previous")?.value ?? 0);
     const issue = machineryRows.reduce((sum, row) => sum + row.currentDiesel, 0);
     const pIssue = issueRows[0]?.value ?? 0;
     dieselTank = { received, previousReceived, totalReceived: received + previousReceived,

@@ -68,7 +68,7 @@ export async function create(req: AuthRequest, res: Response) {
     res.status(201).json(item);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Failed to create item";
-    const status = msg.includes("required") || msg.includes("already exists") ? 400 : 500;
+    const status = msg.includes("required") || msg.includes("already exists") || msg.startsWith("Opening stock") ? 400 : 500;
     res.status(status).json({ error: msg });
   }
 }
